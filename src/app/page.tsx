@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db, auth, ensureAnonAuth } from "@/lib/firebase";
+import { db, auth, ensureAnonAuth, signInWithGoogleLinked, signOut } from "@/lib/firebase";
 import {
   collection,
   addDoc,
@@ -12,7 +12,6 @@ import {
   query,
   where,
   serverTimestamp,
-  DocumentData,
   Timestamp,
 } from "firebase/firestore";
 
@@ -38,6 +37,7 @@ export default function Home() {
   const [color, setColor] = useState<Color>("green");
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
+  const [userLabel, setUserLabel] = useState<string>("");
 
   useEffect(() => {
     let unsub: (() => void) | undefined;
@@ -45,7 +45,18 @@ export default function Home() {
     (async () => {
       try {
         await ensureAnonAuth();
-        const uid = auth.currentUser?.uid;
+
+        // Anzeige des aktuellen Users (anonym vs. Google)
+        const u = auth.currentUser;
+        setUserLabel(
+          u?.isAnonymous
+            ? "Anonymer Benutzer"
+            : u?.email
+            ? `Angemeldet: ${u.email}`
+            : "Angemeldet"
+        );
+
+        const uid = u?.uid;
         if (!uid) return;
 
         const q = query(collection(db, "notes"), where("uid", "==", uid));
@@ -57,9 +68,7 @@ export default function Home() {
               id: d.id,
               text: data.text ?? "",
               color: (data.color ?? "green") as Color,
-              createdAt: data.createdAt?.toDate
-                ? data.createdAt.toDate()
-                : null,
+              createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : null,
               isEditing: false,
             };
           });
@@ -82,8 +91,20 @@ export default function Home() {
       }
     })();
 
+    // Wenn sich der Auth-Status ändert, Label aktualisieren
+    const off = auth.onAuthStateChanged((u) => {
+      setUserLabel(
+        u?.isAnonymous
+          ? "Anonymer Benutzer"
+          : u?.email
+          ? `Angemeldet: ${u.email}`
+          : "Angemeldet"
+      );
+    });
+
     return () => {
       if (unsub) unsub();
+      off();
     };
   }, []);
 
@@ -125,10 +146,28 @@ export default function Home() {
 
   return (
     <div className="p-8 max-w-md mx-auto font-sans">
-      <h1 className="text-3xl font-extrabold mb-6 text-gray-800">
-        Meine Notizen
-      </h1>
+      {/* Header + Auth */}
+      <div className="mb-4">
+        <h1 className="text-3xl font-extrabold text-gray-800">Meine Notizen</h1>
+        <div className="mt-1 text-sm text-gray-600">{userLabel}</div>
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={signInWithGoogleLinked}
+            className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
+            title="Anonymen Account mit Google verknüpfen (empfohlen)"
+          >
+            Mit Google anmelden
+          </button>
+          <button
+            onClick={signOut}
+            className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
+          >
+            Abmelden
+          </button>
+        </div>
+      </div>
 
+      {/* Eingabe */}
       <input
         type="text"
         placeholder="Neue Notiz eingeben"
@@ -137,6 +176,7 @@ export default function Home() {
         className="w-full p-3 border border-gray-300 rounded mb-2 text-lg"
       />
 
+      {/* Ampeln (Erstellen) */}
       <div className="flex gap-3 mb-2">
         <button
           onClick={() => setColor("green")}
@@ -170,6 +210,7 @@ export default function Home() {
         Notiz hinzufügen
       </button>
 
+      {/* Liste */}
       {loading ? (
         <div className="text-gray-500">Lade Notizen…</div>
       ) : notes.length === 0 ? (
