@@ -12,6 +12,8 @@ import {
   query,
   where,
   serverTimestamp,
+  DocumentData,
+  Timestamp,
 } from "firebase/firestore";
 
 type Color = "green" | "yellow" | "red";
@@ -24,45 +26,48 @@ type Note = {
   isEditing?: boolean;
 };
 
+type NoteDoc = {
+  uid: string;
+  text?: string;
+  color?: Color;
+  createdAt?: Timestamp;
+};
+
 export default function Home() {
   const [text, setText] = useState("");
   const [color, setColor] = useState<Color>("green");
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 1) Anonym bei Firebase anmelden & Listener starten
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
     (async () => {
       try {
-        // stellt sicher, dass ein (anonymer) User vorhanden ist
         await ensureAnonAuth();
-
         const uid = auth.currentUser?.uid;
         if (!uid) return;
 
-        // Nur Notizen des aktuellen Users laden
         const q = query(collection(db, "notes"), where("uid", "==", uid));
 
         unsub = onSnapshot(q, (snap) => {
           const items: Note[] = snap.docs.map((d) => {
-            const data = d.data() as any;
+            const data = d.data() as NoteDoc;
             return {
               id: d.id,
               text: data.text ?? "",
               color: (data.color ?? "green") as Color,
-              createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : null,
+              createdAt: data.createdAt?.toDate
+                ? data.createdAt.toDate()
+                : null,
               isEditing: false,
             };
           });
 
-          // Sortierung: Grün → Gelb → Rot (danach nach Datum)
           const order = { green: 1, yellow: 2, red: 3 } as const;
           items.sort((a, b) => {
             const byColor = order[a.color] - order[b.color];
             if (byColor !== 0) return byColor;
-            // jüngste zuerst
             const at = a.createdAt?.getTime() ?? 0;
             const bt = b.createdAt?.getTime() ?? 0;
             return bt - at;
@@ -82,7 +87,6 @@ export default function Home() {
     };
   }, []);
 
-  // 2) Neue Notiz in Firestore speichern
   const addNote = async () => {
     if (!text.trim()) return;
     const uid = auth.currentUser?.uid;
@@ -98,19 +102,16 @@ export default function Home() {
     setText("");
   };
 
-  // 3) Notiz löschen
   const deleteNote = async (id: string) => {
     await deleteDoc(doc(db, "notes", id));
   };
 
-  // 4) Bearbeiten ein/aus
   const toggleEdit = (id: string) => {
     setNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isEditing: !n.isEditing } : n))
     );
   };
 
-  // 5) Text speichern (Update in Firestore)
   const saveNote = async (id: string, newText: string) => {
     await updateDoc(doc(db, "notes", id), { text: newText.trim() });
     setNotes((prev) =>
@@ -118,7 +119,6 @@ export default function Home() {
     );
   };
 
-  // 6) Farbe ändern (Update in Firestore)
   const changeColor = async (id: string, newColor: Color) => {
     await updateDoc(doc(db, "notes", id), { color: newColor });
   };
@@ -129,7 +129,6 @@ export default function Home() {
         Meine Notizen
       </h1>
 
-      {/* Eingabe-Feld */}
       <input
         type="text"
         placeholder="Neue Notiz eingeben"
@@ -138,7 +137,6 @@ export default function Home() {
         className="w-full p-3 border border-gray-300 rounded mb-2 text-lg"
       />
 
-      {/* Ampel-Buttons (Erstellen) */}
       <div className="flex gap-3 mb-2">
         <button
           onClick={() => setColor("green")}
@@ -165,7 +163,6 @@ export default function Home() {
         />
       </div>
 
-      {/* Notiz hinzufügen */}
       <button
         onClick={addNote}
         className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded mb-6 font-bold"
@@ -173,7 +170,6 @@ export default function Home() {
         Notiz hinzufügen
       </button>
 
-      {/* Liste */}
       {loading ? (
         <div className="text-gray-500">Lade Notizen…</div>
       ) : notes.length === 0 ? (
@@ -191,7 +187,6 @@ export default function Home() {
                   : "bg-red-200"
               }`}
             >
-              {/* Löschen */}
               <button
                 onClick={() => deleteNote(note.id)}
                 className="absolute top-2 right-2 text-gray-600 hover:text-black"
@@ -200,7 +195,6 @@ export default function Home() {
                 ✖
               </button>
 
-              {/* Inhalt / Bearbeiten */}
               {note.isEditing ? (
                 <EditRow
                   defaultValue={note.text}
@@ -217,7 +211,6 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Ampeln – nachträgliche Farbänderung */}
               <div className="flex gap-3 mt-3">
                 <button
                   onClick={() => changeColor(note.id, "green")}
@@ -255,7 +248,6 @@ export default function Home() {
   );
 }
 
-/** Kleines Inline-Formular für die Bearbeitung */
 function EditRow({
   defaultValue,
   onSave,
@@ -286,10 +278,7 @@ function EditRow({
       >
         Speichern
       </button>
-      <button
-        onClick={onCancel}
-        className="px-3 py-1 bg-gray-200 rounded"
-      >
+      <button onClick={onCancel} className="px-3 py-1 bg-gray-200 rounded">
         Abbrechen
       </button>
     </div>
