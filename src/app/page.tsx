@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { db, auth, ensureAnonAuth, signInWithGoogleLinked, signOut } from "@/lib/firebase";
+import { useEffect, useRef, useState } from "react";
+import {
+  db,
+  auth,
+  ensureAnonAuth,
+  signInWithGoogleLinked,
+  signOut,
+} from "@/lib/firebase";
 import {
   collection,
   addDoc,
@@ -13,6 +19,8 @@ import {
   where,
   serverTimestamp,
   Timestamp,
+  QuerySnapshot,
+  DocumentData,
 } from "firebase/firestore";
 
 type Color = "green" | "yellow" | "red";
@@ -37,31 +45,44 @@ export default function Home() {
   const [color, setColor] = useState<Color>("green");
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userLabel, setUserLabel] = useState<string>("");
+
+  // Auth-Anzeige
+  const [isAnonymous, setIsAnonymous] = useState(true);
+  const [isGoogle, setIsGoogle] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  const snapshotUnsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    let unsub: (() => void) | undefined;
+    // Mind. anonym einloggen
+    ensureAnonAuth().catch((e) => console.error(e));
 
-    (async () => {
-      try {
-        await ensureAnonAuth();
+    // Auf Auth-Änderungen reagieren
+    const offAuth = auth.onAuthStateChanged((u) => {
+      const anon = !!u?.isAnonymous;
+      const google = !!u?.providerData?.some((p) => p.providerId === "google.com");
+      setIsAnonymous(anon);
+      setIsGoogle(google);
+      setUserEmail(u?.email ?? null);
 
-        // Anzeige des aktuellen Users (anonym vs. Google)
-        const u = auth.currentUser;
-        setUserLabel(
-          u?.isAnonymous
-            ? "Anonymer Benutzer"
-            : u?.email
-            ? `Angemeldet: ${u.email}`
-            : "Angemeldet"
-        );
+      // alten Snapshot schließen
+      if (snapshotUnsubRef.current) {
+        snapshotUnsubRef.current();
+        snapshotUnsubRef.current = null;
+      }
 
-        const uid = u?.uid;
-        if (!uid) return;
+      if (!u) {
+        setNotes([]);
+        setLoading(false);
+        return;
+      }
 
-        const q = query(collection(db, "notes"), where("uid", "==", uid));
-
-        unsub = onSnapshot(q, (snap) => {
+      // neuen Snapshot für aktuelle UID
+      setLoading(true);
+      const q = query(collection(db, "notes"), where("uid", "==", u.uid));
+      const unsub = onSnapshot(
+        q,
+        (snap: QuerySnapshot<DocumentData>) => {
           const items: Note[] = snap.docs.map((d) => {
             const data = d.data() as NoteDoc;
             return {
@@ -84,27 +105,22 @@ export default function Home() {
 
           setNotes(items);
           setLoading(false);
-        });
-      } catch (e) {
-        console.error(e);
-        setLoading(false);
-      }
-    })();
-
-    // Wenn sich der Auth-Status ändert, Label aktualisieren
-    const off = auth.onAuthStateChanged((u) => {
-      setUserLabel(
-        u?.isAnonymous
-          ? "Anonymer Benutzer"
-          : u?.email
-          ? `Angemeldet: ${u.email}`
-          : "Angemeldet"
+        },
+        (error) => {
+          console.warn("Snapshot error:", error);
+          setNotes([]);
+          setLoading(false);
+        }
       );
+      snapshotUnsubRef.current = unsub;
     });
 
     return () => {
-      if (unsub) unsub();
-      off();
+      offAuth();
+      if (snapshotUnsubRef.current) {
+        snapshotUnsubRef.current();
+        snapshotUnsubRef.current = null;
+      }
     };
   }, []);
 
@@ -147,14 +163,29 @@ export default function Home() {
   return (
     <div className="p-8 max-w-md mx-auto font-sans">
       {/* Header + Auth */}
-      <div className="mb-4">
-        <h1 className="text-3xl font-extrabold text-gray-800">Meine Notizen</h1>
-        <div className="mt-1 text-sm text-gray-600">{userLabel}</div>
+      <div className="mb-6">
+        <h1 className="text-3xl font-extrabold text-gray-900">AmpelNotizen</h1>
+
+        {/* Status-Badge: Google-G, Anonym oder (Fallback) E-Mail */}
+        <div className="mt-2 flex items-center gap-2">
+          {isGoogle ? (
+            <GoogleGIcon />
+          ) : isAnonymous ? (
+            <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
+              Anonymer Benutzer
+            </span>
+          ) : (
+            <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
+              {userEmail}
+            </span>
+          )}
+        </div>
+
         <div className="mt-3 flex gap-2">
           <button
             onClick={signInWithGoogleLinked}
             className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
-            title="Anonymen Account mit Google verknüpfen (empfohlen)"
+            title="Anonymen Account mit Google verknüpfen (oder anmelden)"
           >
             Mit Google anmelden
           </button>
@@ -228,6 +259,7 @@ export default function Home() {
                   : "bg-red-200"
               }`}
             >
+              {/* Löschen */}
               <button
                 onClick={() => deleteNote(note.id)}
                 className="absolute top-2 right-2 text-gray-600 hover:text-black"
@@ -236,6 +268,7 @@ export default function Home() {
                 ✖
               </button>
 
+              {/* Inhalt / Bearbeiten */}
               {note.isEditing ? (
                 <EditRow
                   defaultValue={note.text}
@@ -252,6 +285,7 @@ export default function Home() {
                 </div>
               )}
 
+              {/* Ampeln – nachträgliche Farbänderung */}
               <div className="flex gap-3 mt-3">
                 <button
                   onClick={() => changeColor(note.id, "green")}
@@ -286,6 +320,27 @@ export default function Home() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Kleines Google-"G"-Icon (inline SVG, 16x16) */
+function GoogleGIcon() {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-100">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 533.5 544.3"
+        aria-label="Google"
+        role="img"
+      >
+        <path fill="#EA4335" d="M533.5 278.4c0-17.4-1.6-34.1-4.7-50.3H272v95.2h146.9c-6.3 34-25.4 62.7-54.2 81.8v67h87.7c51.3-47.2 81.1-116.6 81.1-193.7z"/>
+        <path fill="#34A853" d="M272 544.3c73.3 0 134.8-24.2 179.8-66.1l-87.7-67c-24.3 16.3-55.3 25.9-92.1 25.9-70.9 0-131-47.7-152.5-112.1H29.4v70.6C74.2 490.6 167.1 544.3 272 544.3z"/>
+        <path fill="#4A90E2" d="M119.5 324.9c-10.6-31.6-10.6-66.2 0-97.8V156.5H29.4c-39.2 78.4-39.2 171.1 0 249.5l90.1-81.1z"/>
+        <path fill="#FBBC05" d="M272 107.7c39.8-.6 77.8 14 106.8 41.2l79.8-79.8C430.5 26.1 371.4 0 272 0 167.1 0 74.2 53.7 29.4 156.5l90.1 70.6C141 155.4 201.1 107.7 272 107.7z"/>
+      </svg>
+      <span className="text-gray-700">Google</span>
+    </span>
   );
 }
 

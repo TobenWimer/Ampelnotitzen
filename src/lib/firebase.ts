@@ -61,48 +61,38 @@ export async function ensureAnonAuth(): Promise<void> {
  */
 export async function signInWithGoogleLinked(): Promise<void> {
   const user = auth.currentUser;
-  // Für konsistentes Verhalten — Google-Kontoauswahl immer zeigen
   provider.setCustomParameters({ prompt: "select_account" });
 
   try {
     if (user && user.isAnonymous) {
+      // 1) Anonymes Konto mit Google verknüpfen (bevorzugt)
       await linkWithPopup(user, provider);
     } else {
+      // 2) Normal anmelden
       await signInWithPopup(auth, provider);
     }
-    return;
   } catch (err: any) {
-    // Typische Popup-Probleme: blockiert, geschlossen, konkurrierende Popups
     const code = err?.code || "";
-    const popupIssues = [
-      "auth/popup-blocked",
-      "auth/popup-closed-by-user",
-      "auth/cancelled-popup-request",
-    ];
-    if (popupIssues.includes(code)) {
-      // Fallback: Redirect-Fluss (Seite lädt neu, Auth-Status wird danach gesetzt)
-      const doRedirect = async () => {
-        if (user && user.isAnonymous) {
-          // Für anonyme Verknüpfung gibt es keinen linkWithRedirect,
-          // daher vorher signInWithPopup versucht; hier als Fallback normal per Redirect anmelden:
-          await signInWithPopup(auth, provider).catch(async () => {
-            // Wenn auch das fehlschlägt, letzter Versuch: Redirect
-            const { signInWithRedirect } = await import("firebase/auth");
-            await signInWithRedirect(auth, provider);
-          });
-        } else {
-          const { signInWithRedirect } = await import("firebase/auth");
-          await signInWithRedirect(auth, provider);
-        }
-      };
-      await doRedirect();
+
+    // Fall A: Google-Konto ist schon mit einem anderen Firebase-User verknüpft
+    if (code === "auth/credential-already-in-use" || code === "auth/account-exists-with-different-credential") {
+      await signInWithPopup(auth, provider);
       return;
     }
-    // Andere Fehler durchreichen, damit man sie in der Konsole sieht
+
+    // Fall B: Popup-Themen → Fallback auf Redirect
+    const popupIssues = ["auth/popup-blocked", "auth/popup-closed-by-user", "auth/cancelled-popup-request"];
+    if (popupIssues.includes(code)) {
+      const { signInWithRedirect } = await import("firebase/auth");
+      await signInWithRedirect(auth, provider);
+      return;
+    }
+
     console.error("Google Sign-In Error:", err);
     throw err;
   }
 }
+
 
 
 /**
