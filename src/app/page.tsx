@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import {
   db,
@@ -24,11 +25,13 @@ import {
 } from "firebase/firestore";
 
 type Color = "green" | "yellow" | "red";
+type Cat = "T" | "W" | "I" | "B";
 
 type Note = {
   id: string;
   text: string;
   color: Color;
+  category?: Cat | "";
   createdAt?: Date | null;
   isEditing?: boolean;
 };
@@ -37,12 +40,19 @@ type NoteDoc = {
   uid: string;
   text?: string;
   color?: Color;
+  category?: Cat | "";
   createdAt?: Timestamp;
 };
 
+const CATS: Cat[] = ["T", "W", "I", "B"];
+
 export default function Home() {
+  // Eingabe (neue Notiz)
   const [text, setText] = useState("");
-  const [color, setColor] = useState<Color>("green");
+  const [color, setColor] = useState<Color>("green"); // Standardfarbe für neue Notizen
+  const [category, setCategory] = useState<Cat | "">(""); // keine Standard-Kategorie
+
+  // Daten
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,10 +61,18 @@ export default function Home() {
   const [isGoogle, setIsGoogle] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
+  // Filter oben
+  const [filter, setFilter] = useState<"ALL" | Cat>("ALL");
+
+  // Inline-Menüs (pro Karte)
+  const [openCatFor, setOpenCatFor] = useState<string | null>(null);
+  const [openColorFor, setOpenColorFor] = useState<string | null>(null);
+
+  // Firestore Snapshot-Unsubscribe
   const snapshotUnsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    // Mind. anonym einloggen
+    // Mindestens anonym anmelden
     ensureAnonAuth().catch((e) => console.error(e));
 
     // Auf Auth-Änderungen reagieren
@@ -79,9 +97,9 @@ export default function Home() {
 
       // neuen Snapshot für aktuelle UID
       setLoading(true);
-      const q = query(collection(db, "notes"), where("uid", "==", u.uid));
+      const qRef = query(collection(db, "notes"), where("uid", "==", u.uid));
       const unsub = onSnapshot(
-        q,
+        qRef,
         (snap: QuerySnapshot<DocumentData>) => {
           const items: Note[] = snap.docs.map((d) => {
             const data = d.data() as NoteDoc;
@@ -89,11 +107,13 @@ export default function Home() {
               id: d.id,
               text: data.text ?? "",
               color: (data.color ?? "green") as Color,
+              category: (data.category as Cat | "") ?? "",
               createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : null,
               isEditing: false,
             };
           });
 
+          // Sortierung: Grün → Gelb → Rot; innerhalb: neueste zuerst
           const order = { green: 1, yellow: 2, red: 3 } as const;
           items.sort((a, b) => {
             const byColor = order[a.color] - order[b.color];
@@ -124,6 +144,7 @@ export default function Home() {
     };
   }, []);
 
+  // Neue Notiz speichern
   const addNote = async () => {
     if (!text.trim()) return;
     const uid = auth.currentUser?.uid;
@@ -133,22 +154,28 @@ export default function Home() {
       uid,
       text: text.trim(),
       color,
+      category: category || null, // nur speichern, wenn gesetzt
       createdAt: serverTimestamp(),
     });
 
     setText("");
+    setCategory(""); // zurücksetzen
+    // color lassen wir bewusst stehen (Quality of Life)
   };
 
+  // Notiz löschen
   const deleteNote = async (id: string) => {
     await deleteDoc(doc(db, "notes", id));
   };
 
+  // Edit-Modus toggeln
   const toggleEdit = (id: string) => {
     setNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isEditing: !n.isEditing } : n))
     );
   };
 
+  // Notiztext speichern
   const saveNote = async (id: string, newText: string) => {
     await updateDoc(doc(db, "notes", id), { text: newText.trim() });
     setNotes((prev) =>
@@ -156,18 +183,57 @@ export default function Home() {
     );
   };
 
+  // Farbe ändern
   const changeColor = async (id: string, newColor: Color) => {
     await updateDoc(doc(db, "notes", id), { color: newColor });
+    setOpenColorFor(null);
   };
+
+  // Kategorie ändern
+  const changeCategory = async (id: string, cat: Cat | "") => {
+    await updateDoc(doc(db, "notes", id), { category: cat || null });
+    setOpenCatFor(null);
+  };
+
+  // Filter anwenden
+  const visibleNotes =
+    filter === "ALL" ? notes : notes.filter((n) => (n.category ?? "") === filter);
+
+  // Helper: Klassen für Farbkreis (aktiv/inaktiv)
+  const circleClass = (active: boolean, tone: "green" | "yellow" | "red") =>
+    `w-6 h-6 rounded-full border-2 ${
+      active
+        ? tone === "green"
+          ? "bg-green-600 border-green-800"
+          : tone === "yellow"
+          ? "bg-yellow-500 border-yellow-700"
+          : "bg-red-600 border-red-800"
+        : tone === "green"
+        ? "bg-green-300"
+        : tone === "yellow"
+        ? "bg-yellow-200"
+        : "bg-red-300"
+    }`;
 
   return (
     <div className="p-8 max-w-md mx-auto font-sans">
-      {/* Header + Auth */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-extrabold text-gray-900">AmpelNotizen</h1>
+      {/* Logo + Titel */}
+      <div className="flex flex-col items-center mb-6">
+        <Image
+          src="/logo.png"
+          alt="OneStepBehind Logo"
+          width={80}
+          height={80}
+          priority
+        />
+        <h1 className="mt-3 text-3xl font-extrabold text-gray-900">
+          OneStepBehind
+        </h1>
+      </div>
 
-        {/* Status-Badge: Google-G, Anonym oder (Fallback) E-Mail */}
-        <div className="mt-2 flex items-center gap-2">
+      {/* Auth-Status + Aktionen */}
+      <div className="mb-6">
+        <div className="mt-1 flex items-center gap-2">
           {isGoogle ? (
             <GoogleGIcon />
           ) : isAnonymous ? (
@@ -180,7 +246,6 @@ export default function Home() {
             </span>
           )}
         </div>
-
         <div className="mt-3 flex gap-2">
           <button
             onClick={signInWithGoogleLinked}
@@ -198,40 +263,68 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Eingabe */}
-      <input
-        type="text"
+      {/* Filter-Leiste */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <FilterChip active={filter === "ALL"} onClick={() => setFilter("ALL")}>
+          Alle
+        </FilterChip>
+        {CATS.map((c) => (
+          <FilterChip key={c} active={filter === c} onClick={() => setFilter(c)}>
+            {c}
+          </FilterChip>
+        ))}
+      </div>
+
+      {/* Eingabe: Text */}
+      <textarea
         placeholder="Neue Notiz eingeben"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        className="w-full p-3 border border-gray-300 rounded mb-2 text-lg"
+        className="w-full p-3 border border-gray-300 rounded mb-2 text-lg resize-y min-h-[100px]"
       />
 
-      {/* Ampeln (Erstellen) */}
-      <div className="flex gap-3 mb-2">
-        <button
-          onClick={() => setColor("green")}
-          aria-label="Grün wählen"
-          className={`w-8 h-8 rounded-full border-2 ${
-            color === "green" ? "bg-green-600 border-green-800" : "bg-green-300"
-          }`}
-        />
-        <button
-          onClick={() => setColor("yellow")}
-          aria-label="Gelb wählen"
-          className={`w-8 h-8 rounded-full border-2 ${
-            color === "yellow"
-              ? "bg-yellow-500 border-yellow-700"
-              : "bg-yellow-200"
-          }`}
-        />
-        <button
-          onClick={() => setColor("red")}
-          aria-label="Rot wählen"
-          className={`w-8 h-8 rounded-full border-2 ${
-            color === "red" ? "bg-red-600 border-red-800" : "bg-red-300"
-          }`}
-        />
+      {/* Eingabe: Kategorie + Ampel (Erstellen) */}
+      <div className="flex items-center gap-4 mb-2">
+        {/* Kategorien: T W I B (keine Vorauswahl) */}
+        <div className="flex items-center gap-2">
+          {CATS.map((c) => {
+            const active = category === c;
+            return (
+              <button
+                key={c}
+                onClick={() => setCategory(active ? "" : c)}
+                aria-label={`Kategorie ${c} wählen`}
+                className={`w-8 h-8 rounded border text-sm font-semibold ${
+                  active
+                    ? "bg-white text-gray-900 border-gray-500"
+                    : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+                }`}
+                title={`Kategorie ${c}`}
+              >
+                {c}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Ampel-Farbe (Erstellen) */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => setColor("green")}
+            aria-label="Grün wählen"
+            className={circleClass(color === "green", "green")}
+          />
+          <button
+            onClick={() => setColor("yellow")}
+            aria-label="Gelb wählen"
+            className={circleClass(color === "yellow", "yellow")}
+          />
+          <button
+            onClick={() => setColor("red")}
+            aria-label="Rot wählen"
+            className={circleClass(color === "red", "red")}
+          />
+        </div>
       </div>
 
       <button
@@ -244,82 +337,168 @@ export default function Home() {
       {/* Liste */}
       {loading ? (
         <div className="text-gray-500">Lade Notizen…</div>
-      ) : notes.length === 0 ? (
-        <div className="text-gray-500">Noch keine Notizen gespeichert.</div>
+      ) : visibleNotes.length === 0 ? (
+        <div className="text-gray-500">
+          {filter === "ALL"
+            ? "Noch keine Notizen gespeichert."
+            : "Keine Notizen in dieser Kategorie."}
+        </div>
       ) : (
         <div className="space-y-3">
-          {notes.map((note) => (
-            <div
-              key={note.id}
-              className={`relative p-4 rounded-xl shadow-lg text-black font-medium text-lg ${
-                note.color === "green"
-                  ? "bg-green-200"
-                  : note.color === "yellow"
-                  ? "bg-yellow-200"
-                  : "bg-red-200"
-              }`}
-            >
-              {/* Löschen */}
-              <button
-                onClick={() => deleteNote(note.id)}
-                className="absolute top-2 right-2 text-gray-600 hover:text-black"
-                aria-label="Notiz löschen"
+          {visibleNotes.map((note) => {
+            const isCatOpen = openCatFor === note.id;
+            const isColorOpen = openColorFor === note.id;
+            return (
+              <div
+                key={note.id}
+                className={`relative p-4 rounded-xl shadow-lg text-black font-medium text-lg ${
+                  note.color === "green"
+                    ? "bg-green-200"
+                    : note.color === "yellow"
+                    ? "bg-yellow-200"
+                    : "bg-red-200"
+                }`}
               >
-                ✖
-              </button>
-
-              {/* Inhalt / Bearbeiten */}
-              {note.isEditing ? (
-                <EditRow
-                  defaultValue={note.text}
-                  onSave={(val) => saveNote(note.id, val)}
-                  onCancel={() => toggleEdit(note.id)}
-                />
-              ) : (
-                <div
-                  onClick={() => toggleEdit(note.id)}
-                  className="cursor-pointer"
-                  title="Zum Bearbeiten klicken"
+                {/* Löschen */}
+                <button
+                  onClick={() => deleteNote(note.id)}
+                  className="absolute top-2 right-2 text-gray-600 hover:text-black"
+                  aria-label="Notiz löschen"
                 >
-                  {note.text}
-                </div>
-              )}
+                  ✖
+                </button>
 
-              {/* Ampeln – nachträgliche Farbänderung */}
-              <div className="flex gap-3 mt-3">
-                <button
-                  onClick={() => changeColor(note.id, "green")}
-                  aria-label="Farbe Grün setzen"
-                  className={`w-6 h-6 rounded-full border-2 ${
-                    note.color === "green"
-                      ? "bg-green-600 border-green-800"
-                      : "bg-green-300"
-                  }`}
-                />
-                <button
-                  onClick={() => changeColor(note.id, "yellow")}
-                  aria-label="Farbe Gelb setzen"
-                  className={`w-6 h-6 rounded-full border-2 ${
-                    note.color === "yellow"
-                      ? "bg-yellow-500 border-yellow-700"
-                      : "bg-yellow-200"
-                  }`}
-                />
-                <button
-                  onClick={() => changeColor(note.id, "red")}
-                  aria-label="Farbe Rot setzen"
-                  className={`w-6 h-6 rounded-full border-2 ${
-                    note.color === "red"
-                      ? "bg-red-600 border-red-800"
-                      : "bg-red-300"
-                  }`}
-                />
+                {/* Inhalt / Bearbeiten */}
+                {note.isEditing ? (
+                  <EditRow
+                    defaultValue={note.text}
+                    onSave={(val) => saveNote(note.id, val)}
+                    onCancel={() => toggleEdit(note.id)}
+                  />
+                ) : (
+                  <div
+                    onClick={() => toggleEdit(note.id)}
+                    className="cursor-pointer whitespace-pre-wrap"
+                    title="Zum Bearbeiten klicken"
+                  >
+                    {note.text}
+                  </div>
+                )}
+
+                {/* Untere Leiste: Kategorie (Badge mit Inline-Menü) + Ampel (Inline-Menü) */}
+                <div className="flex items-center gap-3 mt-3">
+                  {/* Kategorie-Badge */}
+                  <div className="relative">
+                    <button
+                      onClick={() =>
+                        setOpenCatFor(isCatOpen ? null : note.id)
+                      }
+                      className="text-xs bg-white text-gray-800 rounded px-2 py-0.5 border border-white/60 shadow-sm"
+                      aria-expanded={isCatOpen}
+                      aria-label="Kategorie öffnen/schließen"
+                      title="Kategorie ändern"
+                    >
+                      {note.category || "—"}
+                    </button>
+
+                    {/* Inline-Menü Kategorie */}
+                    {isCatOpen && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {CATS.map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => changeCategory(note.id, c)}
+                            className={`px-2 py-1 rounded text-xs border ${
+                              note.category === c
+                                ? "bg-gray-900 text-white border-gray-900"
+                                : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                            }`}
+                            title={`Kategorie ${c} setzen`}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => changeCategory(note.id, "")}
+                          className="px-2 py-1 rounded text-xs border bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                          title="Kategorie entfernen"
+                        >
+                          Keine
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Spacer */}
+                  <span className="flex-1" />
+
+                  {/* Ampel-Farbe */}
+                  <div className="relative">
+                    {/* Aktuelle Farbe als einzelner Button */}
+                    <button
+                      onClick={() =>
+                        setOpenColorFor(isColorOpen ? null : note.id)
+                      }
+                      className={circleClass(true, note.color)}
+                      aria-expanded={isColorOpen}
+                      aria-label="Farbe öffnen/schließen"
+                      title="Farbe ändern"
+                    />
+                    {/* Inline-Menü Farbe */}
+                    {isColorOpen && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <button
+                          onClick={() => changeColor(note.id, "green")}
+                          aria-label="Grün setzen"
+                          className={circleClass(note.color === "green", "green")}
+                          title="Grün"
+                        />
+                        <button
+                          onClick={() => changeColor(note.id, "yellow")}
+                          aria-label="Gelb setzen"
+                          className={circleClass(note.color === "yellow", "yellow")}
+                          title="Gelb"
+                        />
+                        <button
+                          onClick={() => changeColor(note.id, "red")}
+                          aria-label="Rot setzen"
+                          className={circleClass(note.color === "red", "red")}
+                          title="Rot"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
+  );
+}
+
+/** Filter-Chip */
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-full text-sm border ${
+        active
+          ? "bg-gray-900 text-white border-gray-900"
+          : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
