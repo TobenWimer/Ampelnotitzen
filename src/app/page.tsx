@@ -2,12 +2,15 @@
 
 /**
  * OneStepBehind – Notiz-App
+ * Features:
  * - Firebase Auth (anonym + Google-Link/Login)
- * - Firestore Realtime-Sync pro Nutzer (notes)
+ * - Firestore Realtime-Sync pro Nutzer (notes, gefiltert per UID)
  * - Kategorien (T/W/I/B), Filter-Chips (Alle/T/W/I/B)
  * - Inline-Menüs: Kategorie-Badge & aktueller Ampelkreis klappen Optionen auf
- * - Editieren per Klick, Speichern/Abbrechen
- * - Design: Weißer Seitenhintergrund, "Glassy" Karten mit Farbverlauf & dunklerem Rand
+ * - Editieren per Klick mit auto-resizing Textarea
+ * - Design: Weißer Hintergrund, "Glassy" Karten mit Farbverlauf & dunklerem Rand
+ * - "Notiz hinzufügen"-Button: dunkles glassy Blau
+ * - Google-Control-Buttons: weiße Buttons mit schwarzem Rahmen/Schrift
  */
 
 import Image from "next/image";
@@ -302,14 +305,14 @@ export default function Home() {
           <div className="mt-3 flex gap-2">
             <button
               onClick={signInWithGoogleLinked}
-              className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
+              className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
               title="Anonymen Account mit Google verknüpfen (oder anmelden)"
             >
               Mit Google anmelden
             </button>
             <button
               onClick={signOut}
-              className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
+              className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
             >
               Abmelden
             </button>
@@ -333,7 +336,9 @@ export default function Home() {
           placeholder="Neue Notiz eingeben"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="w-full p-3 border border-gray-300 rounded mb-2 text-lg resize-y min-h-[100px]"
+          className="w-full p-3 rounded mb-2 text-lg resize-y min-h-[100px]
+                     border border-black/20 bg-white text-gray-900 placeholder-gray-500
+                     focus:outline-none focus:ring-2 focus:ring-black/20"
         />
 
         {/* ---------- Eingabe: Kategorie + Ampel (Erstellen) ---------- */}
@@ -380,9 +385,12 @@ export default function Home() {
           </div>
         </div>
 
+        {/* ---------- Notiz hinzufügen (dunkles glassy Blau) ---------- */}
         <button
           onClick={addNote}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded mb-6 font-bold"
+          className="w-full relative rounded-2xl border border-blue-950/25
+                     bg-blue-600/40 backdrop-blur-md text-blue-950 font-semibold
+                     py-2 mb-6 shadow-lg hover:shadow-xl transition-shadow"
         >
           Notiz hinzufügen
         </button>
@@ -572,7 +580,7 @@ function GoogleGIcon() {
   );
 }
 
-/** Edit-Zeile für eine Notiz */
+/** Edit-Zeile – auto-resizing Textarea */
 function EditRow({
   defaultValue,
   onSave,
@@ -583,29 +591,52 @@ function EditRow({
   onCancel: () => void;
 }) {
   const [val, setVal] = useState(defaultValue);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Auto-Resize bei Mount & bei Änderungen
+  useEffect(() => {
+    autoResize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const autoResize = () => {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = Math.max(el.scrollHeight, 120) + "px"; // mind. 120px
+  };
 
   return (
-    <div className="flex gap-2 items-center">
-      <input
-        type="text"
+    <div className="flex flex-col gap-2">
+      <textarea
+        ref={taRef}
         value={val}
-        onChange={(e) => setVal(e.target.value)}
+        onChange={(e) => {
+          setVal(e.target.value);
+          autoResize();
+        }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") onSave(val);
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onSave(val); // Ctrl/Cmd+Enter = speichern
           if (e.key === "Escape") onCancel();
         }}
-        className="w-full p-2 rounded border border-gray-400 text-black text-lg"
-        autoFocus
+        className="w-full p-3 rounded border border-black/30 text-black text-lg bg-white
+                   focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+        placeholder="Notiz bearbeiten…"
       />
-      <button
-        onClick={() => onSave(val)}
-        className="px-3 py-1 bg-blue-500 text-white rounded"
-      >
-        Speichern
-      </button>
-      <button onClick={onCancel} className="px-3 py-1 bg-gray-200 rounded">
-        Abbrechen
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onSave(val)}
+          className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
+        >
+          Speichern
+        </button>
+        <button
+          onClick={onCancel}
+          className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
+        >
+          Abbrechen
+        </button>
+      </div>
     </div>
   );
 }
