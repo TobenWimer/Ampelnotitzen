@@ -1,5 +1,15 @@
 "use client";
 
+/**
+ * OneStepBehind – Notiz-App
+ * - Firebase Auth (anonym + Google-Link/Login)
+ * - Firestore Realtime-Sync pro Nutzer (notes)
+ * - Kategorien (T/W/I/B), Filter-Chips (Alle/T/W/I/B)
+ * - Inline-Menüs: Kategorie-Badge & aktueller Ampelkreis klappen Optionen auf
+ * - Editieren per Klick, Speichern/Abbrechen
+ * - Design: Weißer Seitenhintergrund, "Glassy" Karten mit Farbverlauf & dunklerem Rand
+ */
+
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -24,6 +34,10 @@ import {
   DocumentData,
 } from "firebase/firestore";
 
+/* =========================
+   Typen & Konstanten
+   ========================= */
+
 type Color = "green" | "yellow" | "red";
 type Cat = "T" | "W" | "I" | "B";
 
@@ -46,36 +60,43 @@ type NoteDoc = {
 
 const CATS: Cat[] = ["T", "W", "I", "B"];
 
-export default function Home() {
-  // Eingabe (neue Notiz)
-  const [text, setText] = useState("");
-  const [color, setColor] = useState<Color>("green"); // Standardfarbe für neue Notizen
-  const [category, setCategory] = useState<Cat | "">(""); // keine Standard-Kategorie
+/* =========================
+   Komponente
+   ========================= */
 
-  // Daten
+export default function Home() {
+  /* -------- Eingabe für neue Notiz -------- */
+  const [text, setText] = useState("");
+  const [color, setColor] = useState<Color>("green"); // Default für neue Notiz
+  const [category, setCategory] = useState<Cat | "">(""); // keine Vorauswahl
+
+  /* -------- Daten & UI-State -------- */
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Auth-Anzeige
+  /* -------- Auth-Anzeige -------- */
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [isGoogle, setIsGoogle] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  // Filter oben
+  /* -------- Filter (oben) -------- */
   const [filter, setFilter] = useState<"ALL" | Cat>("ALL");
 
-  // Inline-Menüs (pro Karte)
+  /* -------- Inline-Menüs pro Karte -------- */
   const [openCatFor, setOpenCatFor] = useState<string | null>(null);
   const [openColorFor, setOpenColorFor] = useState<string | null>(null);
 
-  // Firestore Snapshot-Unsubscribe
+  /* -------- Firestore Snapshot-Unsubscribe -------- */
   const snapshotUnsubRef = useRef<(() => void) | null>(null);
 
+  /* =========================
+     Effekt: Auth + Notes-Sync
+     ========================= */
   useEffect(() => {
-    // Mindestens anonym anmelden
+    // Mindestens anonym anmelden (sonst keine UID)
     ensureAnonAuth().catch((e) => console.error(e));
 
-    // Auf Auth-Änderungen reagieren
+    // Auf Auth-Änderungen reagieren (UID wechselt → Query neu setzen)
     const offAuth = auth.onAuthStateChanged((u) => {
       const anon = !!u?.isAnonymous;
       const google = !!u?.providerData?.some((p) => p.providerId === "google.com");
@@ -144,6 +165,10 @@ export default function Home() {
     };
   }, []);
 
+  /* =========================
+     Aktionen: CRUD + Updates
+     ========================= */
+
   // Neue Notiz speichern
   const addNote = async () => {
     if (!text.trim()) return;
@@ -159,8 +184,8 @@ export default function Home() {
     });
 
     setText("");
-    setCategory(""); // zurücksetzen
-    // color lassen wir bewusst stehen (Quality of Life)
+    setCategory(""); // zurücksetzen (keine Standard-Kategorie)
+    // color lassen wir bewusst stehen (QoL)
   };
 
   // Notiz löschen
@@ -195,11 +220,19 @@ export default function Home() {
     setOpenCatFor(null);
   };
 
+  /* =========================
+     Derivierte Daten
+     ========================= */
+
   // Filter anwenden
   const visibleNotes =
     filter === "ALL" ? notes : notes.filter((n) => (n.category ?? "") === filter);
 
-  // Helper: Klassen für Farbkreis (aktiv/inaktiv)
+  /* =========================
+     UI Helper
+     ========================= */
+
+  // Kreis-Button (aktiv/inaktiv) – wird für Ampel-Buttons genutzt
   const circleClass = (active: boolean, tone: "green" | "yellow" | "red") =>
     `w-6 h-6 rounded-full border-2 ${
       active
@@ -215,270 +248,286 @@ export default function Home() {
         : "bg-red-300"
     }`;
 
+  // „Glassy“ Karten mit dezentem Farbverlauf & dunklerem Rand
+  const noteCardClass = (tone: Color) => {
+    const base =
+      "relative p-4 rounded-2xl shadow-lg text-black font-medium text-lg border backdrop-blur-md transition-all";
+    const glass = "border-black/20 bg-white/40"; // dunklerer Rand + halbtransparentes Weiß
+    const byTone =
+      tone === "green"
+        ? "bg-gradient-to-br from-emerald-200/60 via-emerald-100/40 to-emerald-50/30"
+        : tone === "yellow"
+        ? "bg-gradient-to-br from-amber-200/60 via-amber-100/40 to-amber-50/30"
+        : "bg-gradient-to-br from-rose-200/60 via-rose-100/40 to-rose-50/30";
+    const hover = "hover:shadow-xl";
+    return `${base} ${glass} ${byTone} ${hover}`;
+  };
+
+  /* =========================
+     Render
+     ========================= */
+
   return (
-    <div className="p-8 max-w-md mx-auto font-sans">
-      {/* Logo + Titel */}
-      <div className="flex flex-col items-center mb-6">
-        <Image
-          src="/logo.png"
-          alt="OneStepBehind Logo"
-          width={80}
-          height={80}
-          priority
-        />
-        <h1 className="mt-3 text-3xl font-extrabold text-gray-900">
-          OneStepBehind
-        </h1>
-      </div>
-
-      {/* Auth-Status + Aktionen */}
-      <div className="mb-6">
-        <div className="mt-1 flex items-center gap-2">
-          {isGoogle ? (
-            <GoogleGIcon />
-          ) : isAnonymous ? (
-            <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
-              Anonymer Benutzer
-            </span>
-          ) : (
-            <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
-              {userEmail}
-            </span>
-          )}
+    <div className="min-h-screen bg-white">
+      <div className="p-8 max-w-md mx-auto font-sans">
+        {/* ---------- Logo + Titel ---------- */}
+        <div className="flex flex-col items-center mb-6">
+          <Image
+            src="/logo.png"
+            alt="OneStepBehind Logo"
+            width={80}
+            height={80}
+            priority
+          />
+          <h1 className="mt-3 text-3xl font-extrabold text-gray-900">
+            OneStepBehind
+          </h1>
         </div>
-        <div className="mt-3 flex gap-2">
-          <button
-            onClick={signInWithGoogleLinked}
-            className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
-            title="Anonymen Account mit Google verknüpfen (oder anmelden)"
-          >
-            Mit Google anmelden
-          </button>
-          <button
-            onClick={signOut}
-            className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
-          >
-            Abmelden
-          </button>
-        </div>
-      </div>
 
-      {/* Filter-Leiste */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <FilterChip active={filter === "ALL"} onClick={() => setFilter("ALL")}>
-          Alle
-        </FilterChip>
-        {CATS.map((c) => (
-          <FilterChip key={c} active={filter === c} onClick={() => setFilter(c)}>
-            {c}
+        {/* ---------- Auth-Status + Aktionen ---------- */}
+        <div className="mb-6">
+          <div className="mt-1 flex items-center gap-2">
+            {isGoogle ? (
+              <GoogleGIcon />
+            ) : isAnonymous ? (
+              <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
+                Anonymer Benutzer
+              </span>
+            ) : (
+              <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
+                {userEmail}
+              </span>
+            )}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={signInWithGoogleLinked}
+              className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
+              title="Anonymen Account mit Google verknüpfen (oder anmelden)"
+            >
+              Mit Google anmelden
+            </button>
+            <button
+              onClick={signOut}
+              className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50"
+            >
+              Abmelden
+            </button>
+          </div>
+        </div>
+
+        {/* ---------- Filter-Leiste ---------- */}
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <FilterChip active={filter === "ALL"} onClick={() => setFilter("ALL")}>
+            Alle
           </FilterChip>
-        ))}
-      </div>
-
-      {/* Eingabe: Text */}
-      <textarea
-        placeholder="Neue Notiz eingeben"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        className="w-full p-3 border border-gray-300 rounded mb-2 text-lg resize-y min-h-[100px]"
-      />
-
-      {/* Eingabe: Kategorie + Ampel (Erstellen) */}
-      <div className="flex items-center gap-4 mb-2">
-        {/* Kategorien: T W I B (keine Vorauswahl) */}
-        <div className="flex items-center gap-2">
-          {CATS.map((c) => {
-            const active = category === c;
-            return (
-              <button
-                key={c}
-                onClick={() => setCategory(active ? "" : c)}
-                aria-label={`Kategorie ${c} wählen`}
-                className={`w-8 h-8 rounded border text-sm font-semibold ${
-                  active
-                    ? "bg-white text-gray-900 border-gray-500"
-                    : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
-                }`}
-                title={`Kategorie ${c}`}
-              >
-                {c}
-              </button>
-            );
-          })}
+          {CATS.map((c) => (
+            <FilterChip key={c} active={filter === c} onClick={() => setFilter(c)}>
+              {c}
+            </FilterChip>
+          ))}
         </div>
 
-        {/* Ampel-Farbe (Erstellen) */}
-        <div className="flex gap-3">
-          <button
-            onClick={() => setColor("green")}
-            aria-label="Grün wählen"
-            className={circleClass(color === "green", "green")}
-          />
-          <button
-            onClick={() => setColor("yellow")}
-            aria-label="Gelb wählen"
-            className={circleClass(color === "yellow", "yellow")}
-          />
-          <button
-            onClick={() => setColor("red")}
-            aria-label="Rot wählen"
-            className={circleClass(color === "red", "red")}
-          />
-        </div>
-      </div>
+        {/* ---------- Eingabe: Text ---------- */}
+        <textarea
+          placeholder="Neue Notiz eingeben"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          className="w-full p-3 border border-gray-300 rounded mb-2 text-lg resize-y min-h-[100px]"
+        />
 
-      <button
-        onClick={addNote}
-        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded mb-6 font-bold"
-      >
-        Notiz hinzufügen
-      </button>
-
-      {/* Liste */}
-      {loading ? (
-        <div className="text-gray-500">Lade Notizen…</div>
-      ) : visibleNotes.length === 0 ? (
-        <div className="text-gray-500">
-          {filter === "ALL"
-            ? "Noch keine Notizen gespeichert."
-            : "Keine Notizen in dieser Kategorie."}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {visibleNotes.map((note) => {
-            const isCatOpen = openCatFor === note.id;
-            const isColorOpen = openColorFor === note.id;
-            return (
-              <div
-                key={note.id}
-                className={`relative p-4 rounded-xl shadow-lg text-black font-medium text-lg ${
-                  note.color === "green"
-                    ? "bg-green-200"
-                    : note.color === "yellow"
-                    ? "bg-yellow-200"
-                    : "bg-red-200"
-                }`}
-              >
-                {/* Löschen */}
+        {/* ---------- Eingabe: Kategorie + Ampel (Erstellen) ---------- */}
+        <div className="flex items-center gap-4 mb-2">
+          {/* Kategorien: T W I B (keine Vorauswahl) */}
+          <div className="flex items-center gap-2">
+            {CATS.map((c) => {
+              const active = category === c;
+              return (
                 <button
-                  onClick={() => deleteNote(note.id)}
-                  className="absolute top-2 right-2 text-gray-600 hover:text-black"
-                  aria-label="Notiz löschen"
+                  key={c}
+                  onClick={() => setCategory(active ? "" : c)}
+                  aria-label={`Kategorie ${c} wählen`}
+                  className={`w-8 h-8 rounded border text-sm font-semibold ${
+                    active
+                      ? "bg-white text-gray-900 border-gray-500"
+                      : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
+                  }`}
+                  title={`Kategorie ${c}`}
                 >
-                  ✖
+                  {c}
                 </button>
+              );
+            })}
+          </div>
 
-                {/* Inhalt / Bearbeiten */}
-                {note.isEditing ? (
-                  <EditRow
-                    defaultValue={note.text}
-                    onSave={(val) => saveNote(note.id, val)}
-                    onCancel={() => toggleEdit(note.id)}
-                  />
-                ) : (
-                  <div
-                    onClick={() => toggleEdit(note.id)}
-                    className="cursor-pointer whitespace-pre-wrap"
-                    title="Zum Bearbeiten klicken"
+          {/* Ampel-Farbe (Erstellen) */}
+          <div className="flex gap-3">
+            <button
+              onClick={() => setColor("green")}
+              aria-label="Grün wählen"
+              className={circleClass(color === "green", "green")}
+            />
+            <button
+              onClick={() => setColor("yellow")}
+              aria-label="Gelb wählen"
+              className={circleClass(color === "yellow", "yellow")}
+            />
+            <button
+              onClick={() => setColor("red")}
+              aria-label="Rot wählen"
+              className={circleClass(color === "red", "red")}
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={addNote}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded mb-6 font-bold"
+        >
+          Notiz hinzufügen
+        </button>
+
+        {/* ---------- Liste ---------- */}
+        {loading ? (
+          <div className="text-gray-500">Lade Notizen…</div>
+        ) : visibleNotes.length === 0 ? (
+          <div className="text-gray-500">
+            {filter === "ALL"
+              ? "Noch keine Notizen gespeichert."
+              : "Keine Notizen in dieser Kategorie."}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {visibleNotes.map((note) => {
+              const isCatOpen = openCatFor === note.id;
+              const isColorOpen = openColorFor === note.id;
+              return (
+                <div key={note.id} className={noteCardClass(note.color)}>
+                  {/* Löschen */}
+                  <button
+                    onClick={() => deleteNote(note.id)}
+                    className="absolute top-2 right-2 text-gray-700 hover:text-black"
+                    aria-label="Notiz löschen"
                   >
-                    {note.text}
-                  </div>
-                )}
+                    ✖
+                  </button>
 
-                {/* Untere Leiste: Kategorie (Badge mit Inline-Menü) + Ampel (Inline-Menü) */}
-                <div className="flex items-center gap-3 mt-3">
-                  {/* Kategorie-Badge */}
-                  <div className="relative">
-                    <button
-                      onClick={() =>
-                        setOpenCatFor(isCatOpen ? null : note.id)
-                      }
-                      className="text-xs bg-white text-gray-800 rounded px-2 py-0.5 border border-white/60 shadow-sm"
-                      aria-expanded={isCatOpen}
-                      aria-label="Kategorie öffnen/schließen"
-                      title="Kategorie ändern"
-                    >
-                      {note.category || "—"}
-                    </button>
-
-                    {/* Inline-Menü Kategorie */}
-                    {isCatOpen && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {CATS.map((c) => (
-                          <button
-                            key={c}
-                            onClick={() => changeCategory(note.id, c)}
-                            className={`px-2 py-1 rounded text-xs border ${
-                              note.category === c
-                                ? "bg-gray-900 text-white border-gray-900"
-                                : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                            }`}
-                            title={`Kategorie ${c} setzen`}
-                          >
-                            {c}
-                          </button>
-                        ))}
-                        <button
-                          onClick={() => changeCategory(note.id, "")}
-                          className="px-2 py-1 rounded text-xs border bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                          title="Kategorie entfernen"
-                        >
-                          Keine
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Spacer */}
-                  <span className="flex-1" />
-
-                  {/* Ampel-Farbe */}
-                  <div className="relative">
-                    {/* Aktuelle Farbe als einzelner Button */}
-                    <button
-                      onClick={() =>
-                        setOpenColorFor(isColorOpen ? null : note.id)
-                      }
-                      className={circleClass(true, note.color)}
-                      aria-expanded={isColorOpen}
-                      aria-label="Farbe öffnen/schließen"
-                      title="Farbe ändern"
+                  {/* Inhalt / Bearbeiten */}
+                  {note.isEditing ? (
+                    <EditRow
+                      defaultValue={note.text}
+                      onSave={(val) => saveNote(note.id, val)}
+                      onCancel={() => toggleEdit(note.id)}
                     />
-                    {/* Inline-Menü Farbe */}
-                    {isColorOpen && (
-                      <div className="mt-2 flex items-center gap-3">
-                        <button
-                          onClick={() => changeColor(note.id, "green")}
-                          aria-label="Grün setzen"
-                          className={circleClass(note.color === "green", "green")}
-                          title="Grün"
-                        />
-                        <button
-                          onClick={() => changeColor(note.id, "yellow")}
-                          aria-label="Gelb setzen"
-                          className={circleClass(note.color === "yellow", "yellow")}
-                          title="Gelb"
-                        />
-                        <button
-                          onClick={() => changeColor(note.id, "red")}
-                          aria-label="Rot setzen"
-                          className={circleClass(note.color === "red", "red")}
-                          title="Rot"
-                        />
-                      </div>
-                    )}
+                  ) : (
+                    <div
+                      onClick={() => toggleEdit(note.id)}
+                      className="cursor-pointer whitespace-pre-wrap"
+                      title="Zum Bearbeiten klicken"
+                    >
+                      {note.text}
+                    </div>
+                  )}
+
+                  {/* Untere Leiste: Kategorie + Ampel (Inline-Menüs) */}
+                  <div className="flex items-center gap-3 mt-3">
+                    {/* Kategorie-Badge */}
+                    <div className="relative">
+                      <button
+                        onClick={() =>
+                          setOpenCatFor(isCatOpen ? null : note.id)
+                        }
+                        className="text-xs bg-white/80 text-gray-800 rounded px-2 py-0.5 border border-white/70 shadow-sm"
+                        aria-expanded={isCatOpen}
+                        aria-label="Kategorie öffnen/schließen"
+                        title="Kategorie ändern"
+                      >
+                        {note.category || "—"}
+                      </button>
+
+                      {/* Inline-Menü Kategorie */}
+                      {isCatOpen && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {CATS.map((c) => (
+                            <button
+                              key={c}
+                              onClick={() => changeCategory(note.id, c)}
+                              className={`px-2 py-1 rounded text-xs border ${
+                                note.category === c
+                                  ? "bg-gray-900 text-white border-gray-900"
+                                  : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                              }`}
+                              title={`Kategorie ${c} setzen`}
+                            >
+                              {c}
+                            </button>
+                          ))}
+                          <button
+                            onClick={() => changeCategory(note.id, "")}
+                            className="px-2 py-1 rounded text-xs border bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                            title="Kategorie entfernen"
+                          >
+                            Keine
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Spacer */}
+                    <span className="flex-1" />
+
+                    {/* Ampel-Farbe */}
+                    <div className="relative">
+                      {/* Aktuelle Farbe als einzelner Button */}
+                      <button
+                        onClick={() =>
+                          setOpenColorFor(isColorOpen ? null : note.id)
+                        }
+                        className={circleClass(true, note.color)}
+                        aria-expanded={isColorOpen}
+                        aria-label="Farbe öffnen/schließen"
+                        title="Farbe ändern"
+                      />
+                      {/* Inline-Menü Farbe */}
+                      {isColorOpen && (
+                        <div className="mt-2 flex items-center gap-3">
+                          <button
+                            onClick={() => changeColor(note.id, "green")}
+                            aria-label="Grün setzen"
+                            className={circleClass(note.color === "green", "green")}
+                            title="Grün"
+                          />
+                          <button
+                            onClick={() => changeColor(note.id, "yellow")}
+                            aria-label="Gelb setzen"
+                            className={circleClass(note.color === "yellow", "yellow")}
+                            title="Gelb"
+                          />
+                          <button
+                            onClick={() => changeColor(note.id, "red")}
+                            aria-label="Rot setzen"
+                            className={circleClass(note.color === "red", "red")}
+                            title="Rot"
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-/** Filter-Chip */
+/* =========================
+   UI-Bausteine
+   ========================= */
+
+/** Filter-Chip (oben) */
 function FilterChip({
   active,
   onClick,
@@ -523,6 +572,7 @@ function GoogleGIcon() {
   );
 }
 
+/** Edit-Zeile für eine Notiz */
 function EditRow({
   defaultValue,
   onSave,
