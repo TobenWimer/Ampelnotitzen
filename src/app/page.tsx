@@ -3,13 +3,16 @@
 /**
  * OneStepBehind – Notiz-App
  * - Firebase Auth (anonym + Google-Link/Login)
- * - Firestore Realtime-Sync (notes, pro Nutzer via UID)
+ * - Firestore Realtime-Sync (notes pro Nutzer via UID)
  * - Kategorien (T/W/I/B), Filter-Chips (Alle/T/W/I/B)
  * - Inline-Menüs: Kategorie-Badge & aktueller Ampelkreis klappen Optionen auf
  * - Editieren per Klick mit auto-resizing Textarea
- * - Design: Weißer Hintergrund, "Glassy" Karten mit Farbverlauf & dunklerem Rand
- * - "Notiz hinzufügen" Button: gleicher Farbverlauf wie Notizen (abhängig von gewählter Farbe), glassy
- * - Google-Buttons: weiß mit schwarzem Rahmen & schwarzer Schrift
+ * - Design:
+ *    • Seitenhintergrund weiß
+ *    • Notizkarten: glassy + Farbverlauf (grün/gelb/rot) + dunkler Rand
+ *    • Texteingabe: glassy grau (blur, dezenter Verlauf)
+ *    • Google-Buttons: glassy grau (weiß/grau, dünner schwarzer Rand, schwarze Schrift)
+ *    • „Neue Notiz“: glassy, dunkles Blau mit Verlauf
  */
 
 import Image from "next/image";
@@ -67,7 +70,7 @@ const CATS: Cat[] = ["T", "W", "I", "B"];
    ========================= */
 
 export default function Home() {
-  // Eingabe für neue Notiz
+  // Eingabe neue Notiz
   const [text, setText] = useState("");
   const [color, setColor] = useState<Color>("green");
   const [category, setCategory] = useState<Cat | "">("");
@@ -76,7 +79,7 @@ export default function Home() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Auth-Anzeige
+  // Auth-Indikatoren
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [isGoogle, setIsGoogle] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -84,11 +87,11 @@ export default function Home() {
   // Filter
   const [filter, setFilter] = useState<"ALL" | Cat>("ALL");
 
-  // Inline-Menüs pro Karte
+  // Inline-Menüs (pro Karte)
   const [openCatFor, setOpenCatFor] = useState<string | null>(null);
   const [openColorFor, setOpenColorFor] = useState<string | null>(null);
 
-  // Firestore Snapshot unsub
+  // Firestore unsub
   const snapshotUnsubRef = useRef<(() => void) | null>(null);
 
   /* =========================
@@ -104,7 +107,6 @@ export default function Home() {
       setIsGoogle(google);
       setUserEmail(u?.email ?? null);
 
-      // alten Snapshot schließen
       if (snapshotUnsubRef.current) {
         snapshotUnsubRef.current();
         snapshotUnsubRef.current = null;
@@ -116,7 +118,6 @@ export default function Home() {
         return;
       }
 
-      // neuen Snapshot für aktuelle UID
       setLoading(true);
       const qRef = query(collection(db, "notes"), where("uid", "==", u.uid));
       const unsub = onSnapshot(
@@ -225,6 +226,7 @@ export default function Home() {
      UI Helper (Design)
      ========================= */
 
+  // Ampelkreise
   const circleClass = (active: boolean, tone: "green" | "yellow" | "red") =>
     `w-6 h-6 rounded-full border-2 ${
       active
@@ -240,7 +242,7 @@ export default function Home() {
         : "bg-red-300"
     }`;
 
-  // Notiz-Karte (glassy + Farbverlauf)
+  // Notizkarte
   const noteCardClass = (tone: Color) => {
     const base =
       "relative p-4 rounded-2xl shadow-lg text-black font-medium text-lg border backdrop-blur-md transition-all";
@@ -255,19 +257,26 @@ export default function Home() {
     return `${base} ${glass} ${byTone} ${hover}`;
   };
 
-  // „Notiz hinzufügen“-Button: gleicher Farbverlauf wie aktuelle Farbauswahl
-  const addButtonClass = (tone: Color) => {
-    const base =
-      "w-full relative rounded-2xl border backdrop-blur-md font-semibold py-2 mb-6 shadow-lg hover:shadow-xl transition-shadow";
-    const glass = "border-black/20 bg-white/30 text-gray-900";
-    const byTone =
-      tone === "green"
-        ? "bg-gradient-to-br from-emerald-300/50 via-emerald-200/40 to-emerald-100/30"
-        : tone === "yellow"
-        ? "bg-gradient-to-br from-amber-300/50 via-amber-200/40 to-amber-100/30"
-        : "bg-gradient-to-br from-rose-300/50 via-rose-200/40 to-rose-100/30";
-    return `${base} ${glass} ${byTone}`;
-  };
+  // „Neue Notiz“: glassy, dunkles Blau mit Verlauf
+  const addButtonClass =
+    "w-full relative rounded-2xl border border-blue-950/30 " +
+    "bg-gradient-to-br from-blue-900/40 via-blue-700/40 to-blue-600/40 " +
+    "backdrop-blur-md text-white font-semibold py-2 mb-6 " +
+    "shadow-lg hover:shadow-xl transition-shadow";
+
+  // Texteingabe: glassy grau
+  const inputGlassClass =
+    "w-full p-3 rounded-2xl mb-2 text-lg resize-y min-h-[100px] " +
+    "border border-black/20 " +
+    "bg-gradient-to-br from-slate-200/50 via-white/30 to-slate-100/30 " +
+    "backdrop-blur-md text-gray-900 placeholder-gray-600 " +
+    "focus:outline-none focus:ring-2 focus:ring-black/20";
+
+  // Google-Buttons: glassy grau (weiß/grau, dünner schwarzer Rand)
+  const googleBtnClass =
+    "rounded-2xl px-3 py-2 text-sm bg-gradient-to-br from-gray-200/50 via-white/30 to-gray-100/30 " +
+    "text-gray-900 border border-black/30 backdrop-blur-md " +
+    "hover:bg-white/50 transition shadow-sm";
 
   /* =========================
      Render
@@ -308,15 +317,12 @@ export default function Home() {
           <div className="mt-3 flex gap-2">
             <button
               onClick={signInWithGoogleLinked}
-              className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
+              className={googleBtnClass}
               title="Anonymen Account mit Google verknüpfen (oder anmelden)"
             >
               Mit Google anmelden
             </button>
-            <button
-              onClick={signOut}
-              className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
-            >
+            <button onClick={signOut} className={googleBtnClass}>
               Abmelden
             </button>
           </div>
@@ -339,9 +345,7 @@ export default function Home() {
           placeholder="Neue Notiz eingeben"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="w-full p-3 rounded mb-2 text-lg resize-y min-h-[100px]
-                     border border-black/20 bg-white text-gray-900 placeholder-gray-500
-                     focus:outline-none focus:ring-2 focus:ring-black/20"
+          className={inputGlassClass}
         />
 
         {/* Kategorien + Ampel (neue Notiz) */}
@@ -386,8 +390,8 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Notiz hinzufügen – glassy + verlauf passend zur gewählten Farbe */}
-        <button onClick={addNote} className={addButtonClass(color)}>
+        {/* „Neue Notiz“ – glassy, dunkles Blau mit Verlauf */}
+        <button onClick={addNote} className={addButtonClass}>
           Notiz hinzufügen
         </button>
 
@@ -608,20 +612,23 @@ function EditRow({
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onSave(val);
           if (e.key === "Escape") onCancel();
         }}
-        className="w-full p-3 rounded border border-black/30 text-black text-lg bg-white
-                   focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+        className="w-full p-3 rounded-2xl border border-black/30 text-black text-lg
+                   bg-gradient-to-br from-slate-200/50 via-white/30 to-slate-100/30
+                   backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
         placeholder="Notiz bearbeiten…"
       />
       <div className="flex items-center gap-2">
         <button
           onClick={() => onSave(val)}
-          className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
+          className="rounded-2xl px-3 py-2 text-sm bg-gradient-to-br from-gray-200/50 via-white/30 to-gray-100/30
+                     text-gray-900 border border-black/30 backdrop-blur-md hover:bg-white/50 transition shadow-sm"
         >
           Speichern
         </button>
         <button
           onClick={onCancel}
-          className="rounded px-3 py-2 text-sm bg-white text-black border border-black/30 hover:bg-gray-50 transition"
+          className="rounded-2xl px-3 py-2 text-sm bg-gradient-to-br from-gray-200/50 via-white/30 to-gray-100/30
+                     text-gray-900 border border-black/30 backdrop-blur-md hover:bg-white/50 transition shadow-sm"
         >
           Abbrechen
         </button>
