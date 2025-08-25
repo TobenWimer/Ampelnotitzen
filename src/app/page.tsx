@@ -2,15 +2,14 @@
 
 /**
  * OneStepBehind – Notiz-App
- * Features:
  * - Firebase Auth (anonym + Google-Link/Login)
- * - Firestore Realtime-Sync pro Nutzer (notes, gefiltert per UID)
+ * - Firestore Realtime-Sync (notes, pro Nutzer via UID)
  * - Kategorien (T/W/I/B), Filter-Chips (Alle/T/W/I/B)
  * - Inline-Menüs: Kategorie-Badge & aktueller Ampelkreis klappen Optionen auf
  * - Editieren per Klick mit auto-resizing Textarea
  * - Design: Weißer Hintergrund, "Glassy" Karten mit Farbverlauf & dunklerem Rand
- * - "Notiz hinzufügen"-Button: dunkles glassy Blau
- * - Google-Control-Buttons: weiße Buttons mit schwarzem Rahmen/Schrift
+ * - "Notiz hinzufügen" Button: gleicher Farbverlauf wie Notizen (abhängig von gewählter Farbe), glassy
+ * - Google-Buttons: weiß mit schwarzem Rahmen & schwarzer Schrift
  */
 
 import Image from "next/image";
@@ -68,38 +67,36 @@ const CATS: Cat[] = ["T", "W", "I", "B"];
    ========================= */
 
 export default function Home() {
-  /* -------- Eingabe für neue Notiz -------- */
+  // Eingabe für neue Notiz
   const [text, setText] = useState("");
-  const [color, setColor] = useState<Color>("green"); // Default für neue Notiz
-  const [category, setCategory] = useState<Cat | "">(""); // keine Vorauswahl
+  const [color, setColor] = useState<Color>("green");
+  const [category, setCategory] = useState<Cat | "">("");
 
-  /* -------- Daten & UI-State -------- */
+  // Daten/UI
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
 
-  /* -------- Auth-Anzeige -------- */
+  // Auth-Anzeige
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [isGoogle, setIsGoogle] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  /* -------- Filter (oben) -------- */
+  // Filter
   const [filter, setFilter] = useState<"ALL" | Cat>("ALL");
 
-  /* -------- Inline-Menüs pro Karte -------- */
+  // Inline-Menüs pro Karte
   const [openCatFor, setOpenCatFor] = useState<string | null>(null);
   const [openColorFor, setOpenColorFor] = useState<string | null>(null);
 
-  /* -------- Firestore Snapshot-Unsubscribe -------- */
+  // Firestore Snapshot unsub
   const snapshotUnsubRef = useRef<(() => void) | null>(null);
 
   /* =========================
      Effekt: Auth + Notes-Sync
      ========================= */
   useEffect(() => {
-    // Mindestens anonym anmelden (sonst keine UID)
     ensureAnonAuth().catch((e) => console.error(e));
 
-    // Auf Auth-Änderungen reagieren (UID wechselt → Query neu setzen)
     const offAuth = auth.onAuthStateChanged((u) => {
       const anon = !!u?.isAnonymous;
       const google = !!u?.providerData?.some((p) => p.providerId === "google.com");
@@ -172,7 +169,6 @@ export default function Home() {
      Aktionen: CRUD + Updates
      ========================= */
 
-  // Neue Notiz speichern
   const addNote = async () => {
     if (!text.trim()) return;
     const uid = auth.currentUser?.uid;
@@ -182,28 +178,25 @@ export default function Home() {
       uid,
       text: text.trim(),
       color,
-      category: category || null, // nur speichern, wenn gesetzt
+      category: category || null,
       createdAt: serverTimestamp(),
     });
 
     setText("");
-    setCategory(""); // zurücksetzen (keine Standard-Kategorie)
-    // color lassen wir bewusst stehen (QoL)
+    setCategory("");
+    // color bleibt erhalten (QoL)
   };
 
-  // Notiz löschen
   const deleteNote = async (id: string) => {
     await deleteDoc(doc(db, "notes", id));
   };
 
-  // Edit-Modus toggeln
   const toggleEdit = (id: string) => {
     setNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, isEditing: !n.isEditing } : n))
     );
   };
 
-  // Notiztext speichern
   const saveNote = async (id: string, newText: string) => {
     await updateDoc(doc(db, "notes", id), { text: newText.trim() });
     setNotes((prev) =>
@@ -211,13 +204,11 @@ export default function Home() {
     );
   };
 
-  // Farbe ändern
   const changeColor = async (id: string, newColor: Color) => {
     await updateDoc(doc(db, "notes", id), { color: newColor });
     setOpenColorFor(null);
   };
 
-  // Kategorie ändern
   const changeCategory = async (id: string, cat: Cat | "") => {
     await updateDoc(doc(db, "notes", id), { category: cat || null });
     setOpenCatFor(null);
@@ -227,15 +218,13 @@ export default function Home() {
      Derivierte Daten
      ========================= */
 
-  // Filter anwenden
   const visibleNotes =
     filter === "ALL" ? notes : notes.filter((n) => (n.category ?? "") === filter);
 
   /* =========================
-     UI Helper
+     UI Helper (Design)
      ========================= */
 
-  // Kreis-Button (aktiv/inaktiv) – wird für Ampel-Buttons genutzt
   const circleClass = (active: boolean, tone: "green" | "yellow" | "red") =>
     `w-6 h-6 rounded-full border-2 ${
       active
@@ -251,11 +240,11 @@ export default function Home() {
         : "bg-red-300"
     }`;
 
-  // „Glassy“ Karten mit dezentem Farbverlauf & dunklerem Rand
+  // Notiz-Karte (glassy + Farbverlauf)
   const noteCardClass = (tone: Color) => {
     const base =
       "relative p-4 rounded-2xl shadow-lg text-black font-medium text-lg border backdrop-blur-md transition-all";
-    const glass = "border-black/20 bg-white/40"; // dunklerer Rand + halbtransparentes Weiß
+    const glass = "border-black/20 bg-white/40";
     const byTone =
       tone === "green"
         ? "bg-gradient-to-br from-emerald-200/60 via-emerald-100/40 to-emerald-50/30"
@@ -266,6 +255,20 @@ export default function Home() {
     return `${base} ${glass} ${byTone} ${hover}`;
   };
 
+  // „Notiz hinzufügen“-Button: gleicher Farbverlauf wie aktuelle Farbauswahl
+  const addButtonClass = (tone: Color) => {
+    const base =
+      "w-full relative rounded-2xl border backdrop-blur-md font-semibold py-2 mb-6 shadow-lg hover:shadow-xl transition-shadow";
+    const glass = "border-black/20 bg-white/30 text-gray-900";
+    const byTone =
+      tone === "green"
+        ? "bg-gradient-to-br from-emerald-300/50 via-emerald-200/40 to-emerald-100/30"
+        : tone === "yellow"
+        ? "bg-gradient-to-br from-amber-300/50 via-amber-200/40 to-amber-100/30"
+        : "bg-gradient-to-br from-rose-300/50 via-rose-200/40 to-rose-100/30";
+    return `${base} ${glass} ${byTone}`;
+  };
+
   /* =========================
      Render
      ========================= */
@@ -273,7 +276,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       <div className="p-8 max-w-md mx-auto font-sans">
-        {/* ---------- Logo + Titel ---------- */}
+        {/* Header */}
         <div className="flex flex-col items-center mb-6">
           <Image
             src="/logo.png"
@@ -287,7 +290,7 @@ export default function Home() {
           </h1>
         </div>
 
-        {/* ---------- Auth-Status + Aktionen ---------- */}
+        {/* Auth */}
         <div className="mb-6">
           <div className="mt-1 flex items-center gap-2">
             {isGoogle ? (
@@ -319,7 +322,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ---------- Filter-Leiste ---------- */}
+        {/* Filter */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <FilterChip active={filter === "ALL"} onClick={() => setFilter("ALL")}>
             Alle
@@ -331,7 +334,7 @@ export default function Home() {
           ))}
         </div>
 
-        {/* ---------- Eingabe: Text ---------- */}
+        {/* Eingabe */}
         <textarea
           placeholder="Neue Notiz eingeben"
           value={text}
@@ -341,9 +344,8 @@ export default function Home() {
                      focus:outline-none focus:ring-2 focus:ring-black/20"
         />
 
-        {/* ---------- Eingabe: Kategorie + Ampel (Erstellen) ---------- */}
+        {/* Kategorien + Ampel (neue Notiz) */}
         <div className="flex items-center gap-4 mb-2">
-          {/* Kategorien: T W I B (keine Vorauswahl) */}
           <div className="flex items-center gap-2">
             {CATS.map((c) => {
               const active = category === c;
@@ -365,7 +367,6 @@ export default function Home() {
             })}
           </div>
 
-          {/* Ampel-Farbe (Erstellen) */}
           <div className="flex gap-3">
             <button
               onClick={() => setColor("green")}
@@ -385,17 +386,12 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ---------- Notiz hinzufügen (dunkles glassy Blau) ---------- */}
-        <button
-          onClick={addNote}
-          className="w-full relative rounded-2xl border border-blue-950/25
-                     bg-blue-600/40 backdrop-blur-md text-blue-950 font-semibold
-                     py-2 mb-6 shadow-lg hover:shadow-xl transition-shadow"
-        >
+        {/* Notiz hinzufügen – glassy + verlauf passend zur gewählten Farbe */}
+        <button onClick={addNote} className={addButtonClass(color)}>
           Notiz hinzufügen
         </button>
 
-        {/* ---------- Liste ---------- */}
+        {/* Liste */}
         {loading ? (
           <div className="text-gray-500">Lade Notizen…</div>
         ) : visibleNotes.length === 0 ? (
@@ -420,7 +416,7 @@ export default function Home() {
                     ✖
                   </button>
 
-                  {/* Inhalt / Bearbeiten */}
+                  {/* Inhalt / Edit */}
                   {note.isEditing ? (
                     <EditRow
                       defaultValue={note.text}
@@ -437,7 +433,7 @@ export default function Home() {
                     </div>
                   )}
 
-                  {/* Untere Leiste: Kategorie + Ampel (Inline-Menüs) */}
+                  {/* Footer: Kategorie + Ampel */}
                   <div className="flex items-center gap-3 mt-3">
                     {/* Kategorie-Badge */}
                     <div className="relative">
@@ -453,7 +449,6 @@ export default function Home() {
                         {note.category || "—"}
                       </button>
 
-                      {/* Inline-Menü Kategorie */}
                       {isCatOpen && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {CATS.map((c) => (
@@ -481,12 +476,10 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* Spacer */}
                     <span className="flex-1" />
 
                     {/* Ampel-Farbe */}
                     <div className="relative">
-                      {/* Aktuelle Farbe als einzelner Button */}
                       <button
                         onClick={() =>
                           setOpenColorFor(isColorOpen ? null : note.id)
@@ -496,7 +489,6 @@ export default function Home() {
                         aria-label="Farbe öffnen/schließen"
                         title="Farbe ändern"
                       />
-                      {/* Inline-Menü Farbe */}
                       {isColorOpen && (
                         <div className="mt-2 flex items-center gap-3">
                           <button
@@ -535,7 +527,6 @@ export default function Home() {
    UI-Bausteine
    ========================= */
 
-/** Filter-Chip (oben) */
 function FilterChip({
   active,
   onClick,
@@ -559,7 +550,6 @@ function FilterChip({
   );
 }
 
-/** Kleines Google-"G"-Icon (inline SVG, 16x16) */
 function GoogleGIcon() {
   return (
     <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-100">
@@ -593,7 +583,6 @@ function EditRow({
   const [val, setVal] = useState(defaultValue);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Auto-Resize bei Mount & bei Änderungen
   useEffect(() => {
     autoResize();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -603,7 +592,7 @@ function EditRow({
     const el = taRef.current;
     if (!el) return;
     el.style.height = "0px";
-    el.style.height = Math.max(el.scrollHeight, 120) + "px"; // mind. 120px
+    el.style.height = Math.max(el.scrollHeight, 120) + "px";
   };
 
   return (
@@ -616,7 +605,7 @@ function EditRow({
           autoResize();
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onSave(val); // Ctrl/Cmd+Enter = speichern
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onSave(val);
           if (e.key === "Escape") onCancel();
         }}
         className="w-full p-3 rounded border border-black/30 text-black text-lg bg-white
