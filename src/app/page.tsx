@@ -7,12 +7,11 @@
  * - Kategorien (T/W/I/B), Filter-Chips (Alle/T/W/I/B)
  * - Inline-Menüs: Kategorie-Badge & aktueller Ampelkreis klappen Optionen auf
  * - Editieren per Klick mit auto-resizing Textarea
- * - Design:
- *    • Seitenhintergrund weiß
- *    • Notizkarten: glassy + Farbverlauf (grün/gelb/rot) + dunkler Rand
- *    • Texteingabe: glassy grau (blur, dezenter Verlauf)
- *    • Google-Buttons: glassy grau (weiß/grau, dünner schwarzer Rand, schwarze Schrift)
- *    • „Neue Notiz“: glassy, dunkles Blau mit Verlauf
+ * - Design-Updates:
+ *    • „Notiz hinzufügen“: glassy, Verlauf Blau → sehr hellblau, schwarze Schrift
+ *    • Filter-Chips: glassy Verläufe (Standard grau, aktiv schwarz)
+ *    • Kategorie-Badges bei der Eingabe: glassy grau; aktiv mit deutlich schwarzem Rand
+ *    • Kategorie beim Erstellen bleibt ausgewählt (persistiert)
  */
 
 import Image from "next/image";
@@ -184,7 +183,8 @@ export default function Home() {
     });
 
     setText("");
-    setCategory("");
+    // Kategorie NICHT zurücksetzen (bleibt aktiv)
+    // setCategory("");
     // color bleibt erhalten (QoL)
   };
 
@@ -242,7 +242,7 @@ export default function Home() {
         : "bg-red-300"
     }`;
 
-  // Notizkarte
+  // Notizkarte (glassy + Farbverlauf)
   const noteCardClass = (tone: Color) => {
     const base =
       "relative p-4 rounded-2xl shadow-lg text-black font-medium text-lg border backdrop-blur-md transition-all";
@@ -257,11 +257,11 @@ export default function Home() {
     return `${base} ${glass} ${byTone} ${hover}`;
   };
 
-  // „Neue Notiz“: glassy, dunkles Blau mit Verlauf
+  // „Neue Notiz“: glassy, Verlauf Blau → sehr hellblau, schwarze Schrift
   const addButtonClass =
-    "w-full relative rounded-2xl border border-blue-950/30 " +
-    "bg-gradient-to-br from-blue-900/40 via-blue-700/40 to-blue-600/40 " +
-    "backdrop-blur-md text-white font-semibold py-2 mb-6 " +
+    "w-full relative rounded-2xl border border-blue-950/25 " +
+    "bg-gradient-to-br from-blue-700/45 via-blue-500/35 to-blue-200/30 " +
+    "backdrop-blur-md text-black font-semibold py-2 mb-6 " +
     "shadow-lg hover:shadow-xl transition-shadow";
 
   // Texteingabe: glassy grau
@@ -277,6 +277,15 @@ export default function Home() {
     "rounded-2xl px-3 py-2 text-sm bg-gradient-to-br from-gray-200/50 via-white/30 to-gray-100/30 " +
     "text-gray-900 border border-black/30 backdrop-blur-md " +
     "hover:bg-white/50 transition shadow-sm";
+
+  // Kategorie-Button (Eingabebereich): glassy grau; aktiv mit starkem schwarzen Rand
+  const catSelectBtnClass = (active: boolean) =>
+    "w-8 h-8 rounded border text-sm font-semibold " +
+    "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 " +
+    "backdrop-blur-md " +
+    (active
+      ? "text-gray-900 border-black/80 shadow"
+      : "text-gray-700 border-black/25 hover:border-black/40");
 
   /* =========================
      Render
@@ -328,7 +337,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Filter */}
+        {/* Filter (glassy Badges mit Verläufen) */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <FilterChip active={filter === "ALL"} onClick={() => setFilter("ALL")}>
             Alle
@@ -350,6 +359,7 @@ export default function Home() {
 
         {/* Kategorien + Ampel (neue Notiz) */}
         <div className="flex items-center gap-4 mb-2">
+          {/* Kategorie-Badges (glassy grau; aktiv mit schwarzem Rand) */}
           <div className="flex items-center gap-2">
             {CATS.map((c) => {
               const active = category === c;
@@ -358,11 +368,7 @@ export default function Home() {
                   key={c}
                   onClick={() => setCategory(active ? "" : c)}
                   aria-label={`Kategorie ${c} wählen`}
-                  className={`w-8 h-8 rounded border text-sm font-semibold ${
-                    active
-                      ? "bg-white text-gray-900 border-gray-500"
-                      : "bg-white text-gray-600 border-gray-300 hover:border-gray-400"
-                  }`}
+                  className={catSelectBtnClass(active)}
                   title={`Kategorie ${c}`}
                 >
                   {c}
@@ -371,6 +377,7 @@ export default function Home() {
             })}
           </div>
 
+          {/* Ampel-Farbe */}
           <div className="flex gap-3">
             <button
               onClick={() => setColor("green")}
@@ -390,7 +397,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* „Neue Notiz“ – glassy, dunkles Blau mit Verlauf */}
+        {/* „Neue Notiz“ – glassy, blau → sehr hellblau, Text schwarz */}
         <button onClick={addNote} className={addButtonClass}>
           Notiz hinzufügen
         </button>
@@ -531,6 +538,7 @@ export default function Home() {
    UI-Bausteine
    ========================= */
 
+// Filter-Chip: glassy Verläufe (Standard grau, aktiv schwarz)
 function FilterChip({
   active,
   onClick,
@@ -543,17 +551,23 @@ function FilterChip({
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1 rounded-full text-sm border ${
-        active
-          ? "bg-gray-900 text-white border-gray-900"
-          : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-      }`}
+      className={
+        "px-3 py-1 rounded-full text-sm border backdrop-blur-md transition " +
+        (active
+          ? // aktiv: schwarzer Verlauf + weiße Schrift
+            "border-black/60 text-white shadow " +
+            "bg-gradient-to-br from-black/70 via-neutral-900/60 to-neutral-800/60"
+          : // standard: grauer Verlauf + dunkle Schrift
+            "border-black/25 text-gray-900 shadow-sm " +
+            "bg-gradient-to-br from-gray-200/60 via-white/40 to-gray-100/55 hover:bg-white/60")
+      }
     >
       {children}
     </button>
   );
 }
 
+// kleines Google-"G"
 function GoogleGIcon() {
   return (
     <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-gray-100">
