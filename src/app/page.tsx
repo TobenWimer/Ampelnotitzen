@@ -17,22 +17,16 @@ type Module = {
 
 const modules: Module[] = [
   {
-    key: "notes",
-    title: "Notizen",
-    desc: "Schnell festhalten, ordnen mit Kategorien & Stacks.",
-    href: "/notes",
-  },
-  {
     key: "docs",
     title: "Dokumente",
-    desc: "Texte schreiben & versionieren.",
-    comingSoon: true,
+    desc: "Dokumente erstellen, speichern und organisieren.",
+    href: "/dokumente",
   },
   {
-    key: "calendar",
-    title: "Kalender",
-    desc: "Termine & Deadlines im Blick.",
-    comingSoon: true,
+    key: "notes",
+    title: "Notizen",
+    desc: "Kleine Gedanken schnell festhalten.",
+    href: "/notes",
   },
 ];
 
@@ -41,12 +35,10 @@ function Card({ m }: { m: Module }) {
     "group relative rounded-2xl border backdrop-blur-md p-5 shadow-sm transition " +
     "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 border-black/20";
   const hover = m.href ? "hover:shadow-lg hover:border-black/40" : "opacity-60 cursor-not-allowed";
+
   const content = (
     <>
       <div className="flex items-center gap-3 mb-3">
-        <div className="h-10 w-10 rounded-xl border border-black/20 bg-white/70 grid place-items-center">
-          <span className="text-lg">📄</span>
-        </div>
         <h3 className="text-xl font-bold text-black tracking-tight">{m.title}</h3>
         {m.comingSoon && (
           <span className="ml-auto text-xs px-2 py-1 rounded-full bg-black text-white">Bald</span>
