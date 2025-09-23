@@ -3,6 +3,8 @@
 /**
  * OneStepBehind – Notiz-App mit Kategorien + Stacks (Nur für eingeloggte Google-User)
  * - Ohne Login oder bei anonymem User → Redirect auf "/"
+ * - NEU: Obere Kategorie-Auswahl steuert auch die Erstell-Kategorie
+ * - Unten beim Erstellen: keine Kategorie-Badges mehr, nur Stack-Auswahl (für die oben gewählte Kategorie)
  */
 
 import Image from "next/image";
@@ -101,14 +103,6 @@ const filterChipClass = (active: boolean) =>
 const tinyXBtn =
   "inline-flex items-center justify-center w-6 h-6 rounded-lg border border-black/25 " +
   "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 text-gray-800 hover:border-black/50";
-
-const catSelectBtnClass = (active: boolean) =>
-  "px-3 h-9 rounded-xl border text-sm font-semibold " +
-  "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 " +
-  "backdrop-blur-md " +
-  (active
-    ? "text-gray-900 border-black/80 shadow"
-    : "text-gray-700 border-black/25 hover:border-black/40");
 
 const stackChipClass = (active: boolean) =>
   "px-3 h-9 rounded-xl border text-sm font-semibold " +
@@ -212,7 +206,6 @@ export default function NotesPage() {
     const offAuth = auth.onAuthStateChanged((u) => {
       // Wenn kein User oder anonymer User → zurück zur Startseite
       if (!u || u.isAnonymous) {
-        // Aufräumen
         catsUnsubRef.current?.(); catsUnsubRef.current = null;
         notesUnsubRef.current?.(); notesUnsubRef.current = null;
         stacksUnsubRef.current?.(); stacksUnsubRef.current = null;
@@ -223,7 +216,7 @@ export default function NotesPage() {
         setStacks([]); setLoadingStacks(false);
         setStacksForNew([]); setLoadingStacksForNew(false);
 
-        router.replace("/"); // zurück zum Login-Hub
+        router.replace("/");
         return;
       }
 
@@ -253,11 +246,15 @@ export default function NotesPage() {
           setCategories(cats);
           setLoadingCats(false);
 
-          if (!categoryIdForNew && cats.length > 0) {
-            setCategoryIdForNew(cats[0].id);
-          }
+          // Wenn Filter ungültig wurde → All und Erstell-Kategorie leeren
           if (filter !== "ALL" && !cats.find((c) => c.id === filter)) {
             setFilter("ALL");
+            setCategoryIdForNew("");
+          }
+          // Wenn die Erstell-Kategorie nicht mehr existiert → leeren
+          if (categoryIdForNew && !cats.find((c) => c.id === categoryIdForNew)) {
+            setCategoryIdForNew("");
+            setSelectedStackForNew(null);
           }
         },
         (err) => {
@@ -302,7 +299,6 @@ export default function NotesPage() {
         }
       );
 
-      // Stacks-States zurücksetzen (werden in anderen Effekten gesetzt)
       setStacks([]); setLoadingStacks(false);
       setStacksForNew([]); setLoadingStacksForNew(false);
     });
@@ -356,7 +352,7 @@ export default function NotesPage() {
     );
   }, [filter]);
 
-  // Stacks für „Neue Notiz“ (abhängig von Kategorie für Eingabe)
+  // Stacks für „Neue Notiz“ (abhängig von Erstell-Kategorie)
   useEffect(() => {
     stacksForNewUnsubRef.current?.(); stacksForNewUnsubRef.current = null;
     setStacksForNew([]); setLoadingStacksForNew(false);
@@ -570,7 +566,14 @@ export default function NotesPage() {
         {/* Kategorien-Filter + Manager */}
         <div className="mb-4 flex flex-wrap items-center gap-2 justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <button className={filterChipClass(filter === "ALL")} onClick={() => setFilter("ALL")}>
+            <button
+              className={filterChipClass(filter === "ALL")}
+              onClick={() => {
+                setFilter("ALL");
+                setCategoryIdForNew(""); // Erstell-Kategorie leeren, wenn "Alle"
+                setSelectedStackForNew(null);
+              }}
+            >
               Alle
             </button>
 
@@ -581,7 +584,14 @@ export default function NotesPage() {
                   <span key={c.id} className="inline-flex items-center gap-1">
                     <button
                       className={filterChipClass(active)}
-                      onClick={() => setFilter(c.id)}
+                      onClick={() => {
+                        setFilter(c.id);
+                        // NEU: Obere Auswahl setzt auch die Erstell-Kategorie
+                        setCategoryIdForNew(c.id);
+                        // ggf. den letzten genutzten Stack wiederherstellen
+                        const remembered = lastStackByCategory[c.id];
+                        setSelectedStackForNew(remembered ?? null);
+                      }}
                       title={c.name}
                     >
                       {c.name}
@@ -698,39 +708,9 @@ export default function NotesPage() {
           className={inputGlassClass}
         />
 
-        {/* Kategorie- & Stack-Auswahl + Ampel */}
+        {/* Stack-Auswahl (für die oben gewählte Erstell-Kategorie) + Ampel */}
         <div className="flex items-center gap-4 mb-2 flex-wrap">
-          {/* Kategorie-Auswahl für neue Notiz */}
-          <div className="flex items-center gap-2">
-            {categories.length === 0 ? (
-              <span className="text-gray-500 text-sm">Lege zuerst eine Kategorie an.</span>
-            ) : (
-              categories.map((c) => {
-                const active = categoryIdForNew === c.id;
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => {
-                      const next = active ? "" : c.id;
-                      setCategoryIdForNew(next);
-                      if (!next) {
-                        setSelectedStackForNew(null);
-                      } else {
-                        const remembered = lastStackByCategory[next];
-                        setSelectedStackForNew(remembered ?? null);
-                      }
-                    }}
-                    title={c.name}
-                    className={catSelectBtnClass(active)}
-                  >
-                    {c.name}
-                  </button>
-                );
-              })
-            )}
-          </div>
-
-          {/* Stacks für neue Notiz (nur wenn Kategorie gewählt) */}
+          {/* Stacks für neue Notiz (nur wenn Erstell-Kategorie gesetzt) */}
           {categoryIdForNew && (
             <div className="flex items-center gap-2">
               {/* Neutraler leerer Badge = „kein Stack“ */}
@@ -750,7 +730,7 @@ export default function NotesPage() {
                 aria-label="Kein Stack"
               />
 
-              {/* Stacks der Kategorie */}
+              {/* Stacks der Erstell-Kategorie */}
               {loadingStacksForNew ? (
                 <span className="text-gray-500 text-sm">Lade Stacks…</span>
               ) : stacksForNew.length === 0 ? (
