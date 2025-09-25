@@ -3,8 +3,8 @@
 /**
  * OneStepBehind – Notiz-App mit Kategorien + Stacks (Nur für eingeloggte Google-User)
  * - Ohne Login oder bei anonymem User → Redirect auf "/"
- * - NEU: Obere Kategorie-Auswahl steuert auch die Erstell-Kategorie
- * - Unten beim Erstellen: keine Kategorie-Badges mehr, nur Stack-Auswahl (für die oben gewählte Kategorie)
+ * - Filter oben steuert auch die Erstell-Kategorie (unten nur Stack-Auswahl)
+ * - NEU: Stack löschen durch Klick auf Stack-Titel → zeigt „X“, löscht Stack und setzt zugehörige Notizen auf stackId:null
  */
 
 import Image from "next/image";
@@ -119,7 +119,7 @@ const addButtonClass =
   "shadow-lg hover:shadow-xl transition-shadow";
 
 const inputGlassClass =
-  "w-full p-3 rounded-2xl mb-2 text-lg resize-y min-h-[100px] " +
+  "w-full p-3 rounded-2xl mb-2 text-lg resize-y min-h[100px] min-h-[100px] " +
   "border border-black/20 " +
   "bg-gradient-to-br from-slate-200/50 via-white/30 to-slate-100/30 " +
   "backdrop-blur-md text-gray-900 placeholder-gray-600 " +
@@ -181,13 +181,14 @@ export default function NotesPage() {
   const [stacksForNew, setStacksForNew] = useState<Stack[]>([]);
   const [loadingStacksForNew, setLoadingStacksForNew] = useState(false);
 
-  // Filter
+  // Filter + UI-Zustände
   const [filter, setFilter] = useState<"ALL" | string>("ALL");
-
-  // Inline-Menüs
   const [openColorFor, setOpenColorFor] = useState<string | null>(null);
   const [openCatFor, setOpenCatFor] = useState<string | null>(null);
   const [openStackFor, setOpenStackFor] = useState<string | null>(null);
+
+  // Stack-Header-X sichtbar für welchen Stack?
+  const [openStackHeaderFor, setOpenStackHeaderFor] = useState<string | null>(null);
 
   // Dialoge
   const [catDialogOpen, setCatDialogOpen] = useState(false);
@@ -246,12 +247,11 @@ export default function NotesPage() {
           setCategories(cats);
           setLoadingCats(false);
 
-          // Wenn Filter ungültig wurde → All und Erstell-Kategorie leeren
+          // Ungültige Filter korrigieren
           if (filter !== "ALL" && !cats.find((c) => c.id === filter)) {
             setFilter("ALL");
             setCategoryIdForNew("");
           }
-          // Wenn die Erstell-Kategorie nicht mehr existiert → leeren
           if (categoryIdForNew && !cats.find((c) => c.id === categoryIdForNew)) {
             setCategoryIdForNew("");
             setSelectedStackForNew(null);
@@ -299,6 +299,7 @@ export default function NotesPage() {
         }
       );
 
+      // Stacks-States zurücksetzen
       setStacks([]); setLoadingStacks(false);
       setStacksForNew([]); setLoadingStacksForNew(false);
     });
@@ -524,6 +525,45 @@ export default function NotesPage() {
     }
   };
 
+  /** NEU: Stack löschen (setzt Notizen auf stackId:null, Kategorie bleibt) */
+  const deleteStack = async (stackId: string) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const [notesSnap] = await Promise.all([
+      getDocs(
+        query(
+          collection(db, "notes"),
+          where("uid", "==", uid),
+          where("stackId", "==", stackId)
+        )
+      ),
+    ]);
+
+    const noteDocs = notesSnap.docs;
+
+    const ok = window.confirm(
+      `Diesen Stack wirklich löschen?\n\n` +
+        `• Notizen in diesem Stack: ${noteDocs.length} (werden im Stapel entfernt, bleiben in der Kategorie)\n\n` +
+        `Fortfahren?`
+    );
+    if (!ok) return;
+
+    const batch = writeBatch(db);
+    for (const nd of noteDocs) {
+      batch.update(nd.ref, { stackId: null });
+    }
+    batch.delete(doc(db, "stacks", stackId));
+    await batch.commit();
+
+    // Eingabe-Stack ggf. zurücksetzen
+    if (selectedStackForNew === stackId) {
+      setSelectedStackForNew(null);
+    }
+    // Header-X schließen
+    setOpenStackHeaderFor((prev) => (prev === stackId ? null : prev));
+  };
+
   /* Abgeleitete Daten */
 
   const filteredNotes = useMemo(() => {
@@ -586,9 +626,8 @@ export default function NotesPage() {
                       className={filterChipClass(active)}
                       onClick={() => {
                         setFilter(c.id);
-                        // NEU: Obere Auswahl setzt auch die Erstell-Kategorie
+                        // Obere Auswahl setzt auch die Erstell-Kategorie
                         setCategoryIdForNew(c.id);
-                        // ggf. den letzten genutzten Stack wiederherstellen
                         const remembered = lastStackByCategory[c.id];
                         setSelectedStackForNew(remembered ?? null);
                       }}
@@ -708,12 +747,11 @@ export default function NotesPage() {
           className={inputGlassClass}
         />
 
-        {/* Stack-Auswahl (für die oben gewählte Erstell-Kategorie) + Ampel */}
+        {/* Stack-Auswahl (für oben gesetzte Erstell-Kategorie) + Ampel */}
         <div className="flex items-center gap-4 mb-2 flex-wrap">
-          {/* Stacks für neue Notiz (nur wenn Erstell-Kategorie gesetzt) */}
           {categoryIdForNew && (
             <div className="flex items-center gap-2">
-              {/* Neutraler leerer Badge = „kein Stack“ */}
+              {/* neutral = kein Stack */}
               <button
                 onClick={() => {
                   setSelectedStackForNew(null);
@@ -729,8 +767,6 @@ export default function NotesPage() {
                 title="Ohne Stack"
                 aria-label="Kein Stack"
               />
-
-              {/* Stacks der Erstell-Kategorie */}
               {loadingStacksForNew ? (
                 <span className="text-gray-500 text-sm">Lade Stacks…</span>
               ) : stacksForNew.length === 0 ? (
@@ -808,6 +844,10 @@ export default function NotesPage() {
             openStackFor={openStackFor}
             onOpenStackFor={(id) => setOpenStackFor((x) => (x === id ? null : id))}
             onChangeStack={changeStackForNote}
+            // NEU:
+            openStackHeaderFor={openStackHeaderFor}
+            onToggleStackHeader={(id) => setOpenStackHeaderFor((prev) => (prev === id ? null : id))}
+            onDeleteStack={deleteStack}
           />
         )}
       </div>
@@ -837,6 +877,10 @@ function StacksGrid({
   openStackFor,
   onOpenStackFor,
   onChangeStack,
+  // NEU:
+  openStackHeaderFor,
+  onToggleStackHeader,
+  onDeleteStack,
 }: {
   loadingNotes: boolean;
   loadingStacks: boolean;
@@ -855,6 +899,10 @@ function StacksGrid({
   openStackFor: string | null;
   onOpenStackFor: (id: string) => void;
   onChangeStack: (id: string, newStackId: string | null) => void;
+  // NEU:
+  openStackHeaderFor: string | null;
+  onToggleStackHeader: (id: string) => void;
+  onDeleteStack: (id: string) => void;
 }) {
   const noneKey = "__none__";
   const cols = [{ id: noneKey, title: "(Kein Stack)" }, ...stacks.map((s) => ({ id: s.id, title: s.title }))];
@@ -865,11 +913,32 @@ function StacksGrid({
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       {cols.map((col) => {
         const list = groupedByStack[col.id] ?? [];
+        const isDeletable = col.id !== noneKey;
+        const isHeaderOpen = openStackHeaderFor === col.id;
+
         return (
           <div key={col.id} className={STACK_COL_CLASS}>
             <div className={STACK_HEADER_CLASS}>
-              <span>{col.title}</span>
-              <span className="text-xs text-gray-600">{list.length}</span>
+              <button
+                className="text-left flex-1"
+                title={col.title}
+                onClick={() => isDeletable && onToggleStackHeader(col.id)}
+              >
+                {col.title}
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-600">{list.length}</span>
+                {isDeletable && isHeaderOpen && (
+                  <button
+                    className={tinyXBtn}
+                    title="Diesen Stack löschen"
+                    aria-label="Stack löschen"
+                    onClick={() => onDeleteStack(col.id)}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
 
             {list.length === 0 ? (
