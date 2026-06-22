@@ -1,5 +1,6 @@
 "use client";
 
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useId, useMemo, useState } from "react";
@@ -42,10 +43,11 @@ type Folder = {
   color?: FolderColor;
   createdAtClient?: number;
 };
+
 type DocItem = {
   id: string;
   name: string;
-  color: FolderColor;
+  color?: FolderColor; // Dokumentfarben gleiches Schema
   createdAtClient: number;
 };
 
@@ -57,9 +59,20 @@ type GridItem =
    Page
    ====================== */
 
-export default function DokumenteRootPage() {
-  // Root hat keinen Pfad → parentPathSlug = "" (leer)
-  const currentPathSlug = "";
+export default function AnyDepthFolderPage() {
+  // ----- Pfad (Slugs) -----
+  const params = useParams() as { path?: string[] };
+  const segs: string[] = Array.isArray(params?.path) ? params.path : [];
+  const decodedSegs = useMemo(() => segs.map(decodeURIComponent), [segs]);
+  const currentPathSlug = useMemo(() => decodedSegs.join("/"), [decodedSegs]);
+
+  const parentHref =
+    decodedSegs.length <= 1
+      ? "/dokumente"
+      : `/dokumente/${decodedSegs
+          .slice(0, -1)
+          .map(encodeURIComponent)
+          .join("/")}`;
 
   // ----- Auth -----
   const [uid, setUid] = useState<string | null>(null);
@@ -86,7 +99,7 @@ export default function DokumenteRootPage() {
   const [isCreateDocOpen, setIsCreateDocOpen] = useState(false);
   const [newDocName, setNewDocName] = useState("");
 
-  // ----- Laden: Unterordner auf Root -----
+  // ----- Laden: Unterordner -----
   useEffect(() => {
     if (!authReady) return;
     if (!uid) {
@@ -121,7 +134,7 @@ export default function DokumenteRootPage() {
         setLoadingFolders(false);
       },
       (err) => {
-        console.warn("folders(root) error", err);
+        console.warn("folders(child) error", err);
         setFolders([]);
         setLoadingFolders(false);
       }
@@ -130,7 +143,7 @@ export default function DokumenteRootPage() {
     return () => unsub();
   }, [authReady, uid, currentPathSlug]);
 
-  // ----- Laden: Dokumente auf Root -----
+  // ----- Laden: Dokumente in diesem Pfad -----
   useEffect(() => {
     if (!authReady) return;
     if (!uid) {
@@ -164,7 +177,7 @@ export default function DokumenteRootPage() {
         setLoadingDocs(false);
       },
       (err) => {
-        console.warn("documents(root) error", err);
+        console.warn("documents(child) error", err);
         setDocs([]);
         setLoadingDocs(false);
       }
@@ -203,7 +216,7 @@ export default function DokumenteRootPage() {
     }
   };
 
-  // ----- Anlegen: Ordner auf Root -----
+  // ----- Anlegen: Unterordner -----
   const createFolder = async () => {
     const name = newFolderName.trim();
     if (!name) return;
@@ -216,7 +229,7 @@ export default function DokumenteRootPage() {
     await addDoc(collection(db, "folders"), {
       name,
       slug,
-      parentPathSlug: currentPathSlug, // ""
+      parentPathSlug: currentPathSlug,
       color: "blue",
       uid,
       createdAt: serverTimestamp(),
@@ -227,7 +240,7 @@ export default function DokumenteRootPage() {
     setIsCreateFolderOpen(false);
   };
 
-  // ----- Anlegen: Dokument auf Root -----
+  // ----- Anlegen: Dokument in diesem Pfad -----
   const createDocument = async () => {
     const name = newDocName.trim();
     if (!name) return;
@@ -237,9 +250,9 @@ export default function DokumenteRootPage() {
     }
     await addDoc(collection(db, "documents"), {
       name,
-      parentPathSlug: currentPathSlug, // ""
-      uid,
+      parentPathSlug: currentPathSlug,
       color: "blue",
+      uid,
       createdAt: serverTimestamp(),
       createdAtClient: Date.now(),
     });
@@ -330,6 +343,38 @@ export default function DokumenteRootPage() {
     await updateDoc(doc(db, "documents", id), { color });
   };
 
+  // ----- Breadcrumbs -----
+  const Breadcrumbs = (
+    <nav className="text-sm text-gray-800">
+      <ol className="flex items-center gap-2">
+        <li>
+          <Link href="/dokumente" className="hover:underline">
+            Dokumente
+          </Link>
+        </li>
+        {decodedSegs.map((seg, i) => {
+          const isLast = i === decodedSegs.length - 1;
+          const href = `/dokumente/${decodedSegs
+            .slice(0, i + 1)
+            .map(encodeURIComponent)
+            .join("/")}`;
+          return (
+            <li key={`${seg}-${i}`} className="flex items-center gap-2">
+              <span className="text-gray-400">/</span>
+              {isLast ? (
+                <span className="font-semibold text-gray-900">{seg}</span>
+              ) : (
+                <Link href={href} className="hover:underline">
+                  {seg}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+
   // --- GEMEINSAMES GRID ---
   const items: GridItem[] = useMemo(() => {
     const F = folders.map((f) => ({
@@ -363,17 +408,20 @@ export default function DokumenteRootPage() {
           </h1>
         </Link>
 
-        {/* Titel + Actions */}
+        {/* Breadcrumbs + Actions */}
         <div className="flex items-center justify-between mb-6">
-          <nav className="text-sm text-gray-800">
-            <ol className="flex items-center gap-2">
-              <li>
-                <span className="font-semibold text-gray-900">Dokumente</span>
-              </li>
-            </ol>
-          </nav>
+          {Breadcrumbs}
 
           <div className="flex items-center gap-2">
+            <Link
+              href={parentHref}
+              className="rounded-xl border border-black/20 px-3 py-2 text-sm
+                         bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45
+                         text-gray-900 transition shadow-sm"
+            >
+              Zurück
+            </Link>
+
             {/* Neuer Ordner */}
             {!isCreateFolderOpen ? (
               <button
@@ -463,7 +511,7 @@ export default function DokumenteRootPage() {
           <div className="text-gray-500">Bitte einloggen, um Inhalte zu sehen.</div>
         ) : loadingFolders || loadingDocs ? (
           <div className="text-gray-500">Lade…</div>
-        ) : folders.length + docs.length === 0 ? (
+        ) : items.length === 0 ? (
           <div className="text-gray-500">
             Noch nichts hier. Lege oben Ordner oder Dokumente an.
           </div>
@@ -471,16 +519,18 @@ export default function DokumenteRootPage() {
           <div className="grid gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {items.map((it, idx) =>
               it.kind === "folder" ? (
-                <FolderCardRoot
+                <FolderCardChild
                   key={`f-${it.folder.id}-${idx}`}
+                  segs={decodedSegs}
                   folder={it.folder}
                   onRename={() => handleRenameFolder(it.folder.id)}
                   onDelete={() => handleDeleteFolder(it.folder)}
                   onColor={(c) => handleColorFolder(it.folder.id, c)}
                 />
               ) : (
-                <DocumentCardRoot
+                <DocumentCardChild
                   key={`d-${it.doc.id}-${idx}`}
+                  segs={decodedSegs}
                   doc={it.doc}
                   onRename={() => handleRenameDoc(it.doc.id)}
                   onDelete={() => handleDeleteDoc(it.doc.id)}
@@ -496,31 +546,33 @@ export default function DokumenteRootPage() {
 }
 
 /* ======================
-   UI-Bausteine – Root
+   UI-Bausteine
    ====================== */
 
-function FolderCardRoot({
+function FolderCardChild({
+  segs,
   folder,
   onRename,
   onDelete,
   onColor,
 }: {
+  segs: string[];
   folder: Folder;
   onRename: () => void;
   onDelete: () => void;
   onColor: (c: FolderColor) => void;
 }) {
-  const nextHref = `/dokumente/${encodeURIComponent(folder.slug)}`;
+  const nextHref = `/dokumente/${[...segs, folder.slug]
+    .map(encodeURIComponent)
+    .join("/")}`;
   return (
     <div className="flex flex-col items-stretch">
-      {/* Einheitliche Kachel-Höhe/Aspect für FOLDER & DOCS */}
       <FolderTile
         href={nextHref}
         name={folder.name}
         color={folder.color ?? "blue"}
       />
-      {/* Einheitlicher Titelbereich – gleiche Abstände wie bei Documents */}
-      <div className="mt-2 flex items-center justify-center">
+      <div className="mt-2 relative z-30">
         <FolderNameWithMenu
           name={folder.name}
           color={folder.color ?? "blue"}
@@ -533,27 +585,28 @@ function FolderCardRoot({
   );
 }
 
-function DocumentCardRoot({
+function DocumentCardChild({
+  segs, // ungenutzt für den Link (wir verlinken ABSOLUT!)
   doc,
   onRename,
   onDelete,
   onColor,
 }: {
+  segs: string[];
   doc: DocItem;
   onRename: () => void;
   onDelete: () => void;
   onColor: (c: FolderColor) => void;
 }) {
+  // WICHTIG: absoluter Link zur Editor-Route → nie vom Catch-All gefressen
   const href = `/dokumente/doc/${encodeURIComponent(doc.id)}`;
   return (
     <div className="flex flex-col items-stretch">
-      {/* Gleiche Außen-Geometrie wie Folder */}
-      <DocumentTile href={href} name={doc.name} color={doc.color} />
-      {/* Titelbereich spiegelt FolderCard → Baseline identisch */}
-      <div className="mt-2 flex items-center justify-center">
+      <DocumentTile href={href} name={doc.name} color={doc.color ?? "blue"} />
+      <div className="mt-2 relative z-30">
         <DocumentNameWithMenu
           name={doc.name}
-          color={doc.color}
+          color={doc.color ?? "blue"}
           onRename={onRename}
           onDelete={onDelete}
           onColor={onColor}
@@ -563,9 +616,7 @@ function DocumentCardRoot({
   );
 }
 
-/* ======================
-   Menüs (Name klickbar)
-   ====================== */
+/* ----- Menüs unter dem Namen (zentriert, klickbar) ----- */
 
 function FolderNameWithMenu({
   name,
@@ -595,7 +646,7 @@ function FolderNameWithMenu({
   ];
 
   return (
-    <div className="relative">
+    <div className="relative flex justify-center">
       <button
         onClick={() => setOpen((v) => !v)}
         className="px-2 py-1 text-base sm:text-lg font-bold text-gray-900 truncate rounded-md hover:bg-black/5"
@@ -607,7 +658,7 @@ function FolderNameWithMenu({
       {open && (
         <div
           role="menu"
-          className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 min-w-44 rounded-2xl overflow-hidden
+          className="absolute top-full mt-2 z-50 min-w-44 rounded-2xl overflow-hidden
                      border border-black/15 shadow-lg
                      bg-gradient-to-br from-gray-100/70 via-white/60 to-gray-50/50 backdrop-blur-md"
         >
@@ -694,8 +745,9 @@ function DocumentNameWithMenu({
     "purple",
     "gray",
   ];
+
   return (
-    <div className="relative">
+    <div className="relative flex justify-center">
       <button
         onClick={() => setOpen((v) => !v)}
         className="px-2 py-1 text-base sm:text-lg font-bold text-gray-900 truncate rounded-md hover:bg-black/5"
@@ -707,7 +759,7 @@ function DocumentNameWithMenu({
       {open && (
         <div
           role="menu"
-          className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 min-w-44 rounded-2xl overflow-hidden
+          className="absolute top-full mt-2 z-50 min-w-44 rounded-2xl overflow-hidden
                      border border-black/15 shadow-lg
                      bg-gradient-to-br from-gray-100/70 via-white/60 to-gray-50/50 backdrop-blur-md"
         >
@@ -769,10 +821,9 @@ function DocumentNameWithMenu({
 }
 
 /* ======================
-   Kacheln – gleiche Außen-Geometrie
+   Kacheln
    ====================== */
 
-/** Glasige Ordner-Kachel mit Lasche (BACK) + Körper (FRONT) */
 function FolderTile({
   href,
   name,
@@ -876,7 +927,6 @@ function FolderTile({
   );
 }
 
-/** Dokument-Kachel – gleiche Außen-Geometrie wie Ordner */
 function DocumentTile({
   href,
   name,
@@ -887,48 +937,45 @@ function DocumentTile({
   color: FolderColor;
 }) {
   const uid = useId().replace(/:/g, "");
-  const G = gradientFor(color);
-  const spine = spineFor(color);
+  const GG = gradientFor(color);
 
-  // Gleiche äußere Box: aspect-[4/3]
   return (
     <Link
       href={href}
       title={name}
-      className="group relative z-0 w-full aspect-[4/3] rounded-[18px] overflow-hidden"
+      className="group relative z-0 w-full aspect-[6/5] rounded-[14px] overflow-hidden"
       prefetch={false}
     >
       <svg
-        viewBox="0 0 400 300"
+        viewBox="0 0 400 330"
         className="absolute inset-0 w-full h-full"
         aria-hidden="true"
         style={{ pointerEvents: "none" }}
         shapeRendering="geometricPrecision"
       >
-        {/* Innen liegendes Notizbuch (etwas Innenabstand, passt exakt in 4/3) */}
         <defs>
-          {/* Buch-Shape */}
+          {/* Clip = Shape des Buchkörpers */}
           <clipPath id={`clip-${uid}`}>
             <path
               d="
-                M 88 58
+                M 100 60
                 H 320
-                C 336 58 348 74 348 90
-                V 238
-                C 348 254 336 270 320 270
-                H 108
-                C 96 270 80 258 80 246
-                V 78
-                C 80 66 96 58 108 58
+                C 336 60 348 76 348 92
+                V 240
+                C 348 256 336 272 320 272
+                H 100
+                C 88 272 72 260 72 248
+                V 80
+                C 72 68 88 60 100 60
                 Z
               "
             />
           </clipPath>
 
-          {/* Cover-Verlauf (aus Farbwahl) */}
+          {/* Cover-Verlauf: gleiche Farbwelt wie Ordner */}
           <linearGradient id={`cover-${uid}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={G.frontTop} stopOpacity="0.82" />
-            <stop offset="100%" stopColor={G.frontBot} stopOpacity="0.70" />
+            <stop offset="0%" stopColor={GG.frontTop} stopOpacity="0.85" />
+            <stop offset="100%" stopColor={GG.frontBot} stopOpacity="0.70" />
           </linearGradient>
 
           {/* leichte Abdunklung */}
@@ -938,29 +985,30 @@ function DocumentTile({
           </linearGradient>
         </defs>
 
+        {/* Körper im Clip */}
         <g clipPath={`url(#clip-${uid})`}>
           <path
             d="
-              M 88 58
+              M 100 60
               H 320
-              C 336 58 348 74 348 90
-              V 238
-              C 348 254 336 270 320 270
-              H 108
-              C 96 270 80 258 80 246
-              V 78
-              C 80 66 96 58 108 58
+              C 336 60 348 76 348 92
+              V 240
+              C 348 256 336 272 320 272
+              H 100
+              C 88 272 72 260 72 248
+              V 80
+              C 72 68 88 60 100 60
               Z
             "
             fill={`url(#cover-${uid})`}
           />
 
-          {/* Rücken links – farblich passend */}
+          {/* Rücken links (dunkle feine Linie) */}
           <path
-            d="M 108 64 L 108 266"
+            d="M 100 66 L 100 266"
             fill="none"
-            stroke={spine}
-            strokeOpacity="0.85"
+            stroke="#1E3A8A"
+            strokeOpacity="0.7"
             strokeWidth="2"
             strokeLinecap="round"
           />
@@ -968,33 +1016,33 @@ function DocumentTile({
           {/* Abdunklung */}
           <path
             d="
-              M 88 58
+              M 100 60
               H 320
-              C 336 58 348 74 348 90
-              V 238
-              C 348 254 336 270 320 270
-              H 108
-              C 96 270 80 258 80 246
-              V 78
-              C 80 66 96 58 108 58
+              C 336 60 348 76 348 92
+              V 240
+              C 348 256 336 272 320 272
+              H 100
+              C 88 272 72 260 72 248
+              V 80
+              C 72 68 88 60 100 60
               Z
             "
             fill={`url(#shade-${uid})`}
           />
         </g>
 
-        {/* Outline am Buch-Shape */}
+        {/* Outline direkt am Shape – keine überstehenden Linien */}
         <path
           d="
-            M 108 58
+            M 100 60
             H 320
-            C 336 58 348 74 348 90
-            V 238
-            C 348 254 336 270 320 270
-            H 108
-            C 96 270 80 258 80 246
-            V 78
-            C 80 66 96 58 108 58
+            C 336 60 348 76 348 92
+            V 240
+            C 348 256 336 272 320 272
+            H 100
+            C 88 272 72 260 72 248
+            V 80
+            C 72 68 88 60 100 60
             Z
           "
           fill="none"
@@ -1010,10 +1058,7 @@ function DocumentTile({
   );
 }
 
-/* ======================
-   Farb-Helfer
-   ====================== */
-
+/* -------- Farb-Helfer -------- */
 type GSpec = {
   backTop: string;
   backBot: string;
@@ -1090,18 +1135,4 @@ function gradientFor(color: FolderColor): GSpec {
 }
 function sampleSwatch(color: FolderColor) {
   return gradientFor(color).frontTop;
-}
-function spineFor(color: FolderColor): string {
-  switch (color) {
-    case "teal":   return "#0F766E";
-    case "green":  return "#15803D";
-    case "yellow": return "#B45309";
-    case "orange": return "#C2410C";
-    case "red":    return "#991B1B";
-    case "pink":   return "#9D174D";
-    case "purple": return "#5B21B6";
-    case "gray":   return "#475569";
-    case "blue":
-    default:       return "#1E3A8A";
-  }
 }

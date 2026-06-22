@@ -21,6 +21,12 @@ const modules: Module[] = [
     desc: "Kleine Gedanken schnell festhalten.",
     href: "/notes",
   },
+  {
+    key: "tracker",
+    title: "Investment Tracker",
+    desc: "Pots verwalten, Trades eröffnen und Gewinne verfolgen.",
+    href: "/tracker",
+  },
 ];
 
 function Card({ m }: { m: Module }) {
@@ -62,7 +68,6 @@ function Header() {
         <h1 className="text-2xl font-bold text-black">OneStepBehind</h1>
       </div>
 
-      {/* Settings Menu */}
       <div className="relative">
         <button
           onClick={() => setOpen((o) => !o)}
@@ -98,7 +103,6 @@ export default function Home() {
       <main className="min-h-screen bg-white flex flex-col">
         <Header />
         <div className="flex-1 max-w-5xl mx-auto px-6 py-10">
-          {/* Nur eine Kachel: Notizen */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {modules.map((m) => (
               <Card key={m.key} m={m} />
