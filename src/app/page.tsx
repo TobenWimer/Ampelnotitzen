@@ -27,6 +27,12 @@ const modules: Module[] = [
     desc: "Pots verwalten, Trades eröffnen und Gewinne verfolgen.",
     href: "/tracker",
   },
+  {
+    key: "daily",
+    title: "Daily Recap",
+    desc: "Tägliche Selbstbewertung: besser oder schlechter als gestern?",
+    href: "/daily",
+  },
 ];
 
 function Card({ m }: { m: Module }) {

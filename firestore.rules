@@ -1,0 +1,179 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* =========================
+       Hilfsfunktionen
+       ========================= */
+    function isSignedIn() { return request.auth != null; }
+    function authUid()    { return request.auth.uid; }
+
+    function parentDocOwner(docId) {
+      return get(/databases/$(database)/documents/documents/$(docId)).data.uid;
+    }
+
+    /* =========================
+       Kategorien
+       ========================= */
+    match /categories/{catId} {
+      allow read: if isSignedIn() && authUid() == resource.data.uid;
+      allow create: if isSignedIn()
+                    && authUid() == request.resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','name','order','createdAt'
+                    ]);
+      allow update: if isSignedIn()
+                    && authUid() == resource.data.uid
+                    && request.resource.data.uid == resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','name','order','createdAt'
+                    ]);
+      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+    }
+
+    /* =========================
+       Stacks
+       ========================= */
+    match /stacks/{stackId} {
+      allow read: if isSignedIn() && authUid() == resource.data.uid;
+      allow create: if isSignedIn()
+                    && authUid() == request.resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','categoryId','title','order','createdAt'
+                    ]);
+      allow update: if isSignedIn()
+                    && authUid() == resource.data.uid
+                    && request.resource.data.uid == resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','categoryId','title','order','createdAt'
+                    ]);
+      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+    }
+
+    /* =========================
+       Notizen
+       ========================= */
+    match /notes/{noteId} {
+      allow read: if isSignedIn() && authUid() == resource.data.uid;
+      allow create: if isSignedIn()
+                    && authUid() == request.resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','text','color','categoryId','stackId','createdAt'
+                    ])
+                    && request.resource.data.color in ['green','yellow','red'];
+      allow update: if isSignedIn()
+                    && authUid() == resource.data.uid
+                    && request.resource.data.uid == resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','text','color','categoryId','stackId','createdAt'
+                    ]);
+      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+    }
+
+    /* =========================
+       Ordner (Folders)
+       ========================= */
+    match /folders/{folderId} {
+      allow read: if isSignedIn() && authUid() == resource.data.uid;
+      allow create: if isSignedIn()
+                    && authUid() == request.resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','name','slug','parentPathSlug','color','createdAt','createdAtClient'
+                    ]);
+      allow update: if isSignedIn()
+                    && authUid() == resource.data.uid
+                    && request.resource.data.uid == resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','name','slug','parentPathSlug','color','createdAt','createdAtClient'
+                    ]);
+      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+    }
+
+    /* =========================
+       Dokumente (Root-Dokumente)
+       ========================= */
+    match /documents/{docId} {
+      allow read: if isSignedIn() && authUid() == resource.data.uid;
+      allow create: if isSignedIn()
+                    && authUid() == request.resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','name','parentPathSlug','color','createdAt','createdAtClient'
+                    ]);
+      allow update: if isSignedIn()
+                    && authUid() == resource.data.uid
+                    && request.resource.data.uid == resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid','name','parentPathSlug','color','createdAt','createdAtClient'
+                    ]);
+      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+
+      match /pages/{pageId} {
+        allow read: if isSignedIn()
+                    && (
+                         (resource.data.uid == authUid()) ||
+                         (parentDocOwner(docId) == authUid())
+                       );
+        allow create: if isSignedIn()
+                      && authUid() == request.resource.data.uid
+                      && request.resource.data.keys().hasOnly([
+                        'uid','order','format','orientation','createdAt','createdAtClient'
+                      ]);
+        allow update: if isSignedIn()
+                      && authUid() == resource.data.uid
+                      && request.resource.data.uid == resource.data.uid
+                      && request.resource.data.keys().hasOnly([
+                        'uid','order','format','orientation','createdAt','createdAtClient'
+                      ]);
+        allow delete: if isSignedIn()
+                      && (
+                           (resource.data.uid == authUid()) ||
+                           (parentDocOwner(docId) == authUid())
+                         );
+      }
+    }
+
+    /* =========================
+       Editor-Presets
+       ========================= */
+    match /editorPrefs/{prefUid} {
+      allow read: if isSignedIn() && authUid() == prefUid;
+      allow create: if isSignedIn()
+                    && authUid() == request.resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid',
+                      'penColors','markerColors',
+                      'penSizes','markerSizes',
+                      'penIdx','markerIdx',
+                      'sizeIdxPen','sizeIdxMarker',
+                      'updatedAt'
+                    ]);
+      allow update: if isSignedIn()
+                    && authUid() == resource.data.uid
+                    && request.resource.data.uid == resource.data.uid
+                    && request.resource.data.keys().hasOnly([
+                      'uid',
+                      'penColors','markerColors',
+                      'penSizes','markerSizes',
+                      'penIdx','markerIdx',
+                      'sizeIdxPen','sizeIdxMarker',
+                      'updatedAt'
+                    ]);
+      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+    }
+
+    /* =========================
+       Investment Tracker
+       ========================= */
+    match /tracker/{userId} {
+      allow read, write: if isSignedIn() && authUid() == userId;
+    }
+
+    /* =========================
+       Daily Recap
+       ========================= */
+    match /dailyRecap/{userId} {
+      allow read, write: if isSignedIn() && authUid() == userId;
+    }
+
+  }
+}
