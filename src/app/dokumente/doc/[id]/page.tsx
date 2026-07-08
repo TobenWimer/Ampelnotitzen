@@ -1037,7 +1037,8 @@ function A4LikePage({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (penOnly && e.pointerType === "touch") return; // Palm Rejection: Handballen ignorieren
+    if (penOnly && e.pointerType === "touch") return; // Palm Rejection: Handballen ignorieren, Browser darf scrollen
+    e.preventDefault(); // wir zeichnen: Browser soll das nicht als Scroll/Pan interpretieren
     const cvs = canvasRef.current;
     if (!cvs) return;
     cvs.setPointerCapture(e.pointerId);
@@ -1063,6 +1064,7 @@ function A4LikePage({
     else if (hoverPos) setHoverPos(null);
 
     if (!drawingRef.current || !lastPointRef.current) return;
+    e.preventDefault(); // aktives Zeichnen: kein Scroll/Pan während der Geste
 
     if (isLineEraser) {
       applyLineErase(point);
@@ -1159,8 +1161,8 @@ function A4LikePage({
         <div className="absolute top-0 left-0" style={{ width: scaledW, height: scaledH }}>
           <canvas
             ref={canvasRef}
-            className="relative z-10 select-none touch-none bg-white rounded-xl ring-1 ring-black/20"
-            style={{ width: scaledW, height: scaledH, cursor: tool === "eraser" ? "none" : "crosshair", touchAction: "none" }}
+            className="relative z-10 select-none bg-white rounded-xl ring-1 ring-black/20"
+            style={{ width: scaledW, height: scaledH, cursor: tool === "eraser" ? "none" : "crosshair" }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
