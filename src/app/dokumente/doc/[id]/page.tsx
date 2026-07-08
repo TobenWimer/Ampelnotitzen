@@ -119,9 +119,6 @@ export default function DocumentEditorPage() {
   const [tool, setTool] = useState<Tool>("pen");
   // Radierer-Modus: "pixel" radiert punktuell, "linie" löscht den ganzen berührten Strich
   const [eraserMode, setEraserMode] = useState<"pixel" | "linie">("pixel");
-  // Palm Rejection: blockiert Touch-Eingaben (Handballen), Stift und Maus bleiben erlaubt.
-  // Umschalten durch erneutes Antippen des Stift-Buttons, während Stift schon aktiv ist.
-  const [penOnly, setPenOnly] = useState(false);
 
   // Inline-Editoren (Picker)
   const [editColorIdx, setEditColorIdx] = useState<{ type: "pen" | "marker"; idx: number } | null>(null);
@@ -143,6 +140,71 @@ export default function DocumentEditorPage() {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
   const scale = zoomPct / 100;
+
+  // Touch = Navigation (Ein Finger schiebt, zwei Fingern zoomen über die gleiche zoomPct
+  // wie die +/- Buttons, damit die Auflösung mitwächst statt nur optisch gestreckt zu werden).
+  // Läuft komplett eigenständig statt über natives Browser-Scrollen/-Pinchen, weil der Canvas
+  // touch-action:none hat (nötig gegen das iOS Auswahlmenü und damit der Stift nie mitschiebt).
+  const activeTouchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const panStartRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const pinchStartRef = useRef<{ dist: number; zoomPct: number; midX: number; midY: number; scrollLeft: number; scrollTop: number } | null>(null);
+
+  const handleScrollerPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    activeTouchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pts = [...activeTouchesRef.current.values()];
+
+    if (pts.length === 1) {
+      panStartRef.current = { x: pts[0].x, y: pts[0].y, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
+      pinchStartRef.current = null;
+    } else if (pts.length === 2) {
+      pinchStartRef.current = {
+        dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+        zoomPct,
+        midX: (pts[0].x + pts[1].x) / 2,
+        midY: (pts[0].y + pts[1].y) / 2,
+        scrollLeft: el.scrollLeft,
+        scrollTop: el.scrollTop,
+      };
+      panStartRef.current = null;
+    }
+  };
+
+  const handleScrollerPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch" || !activeTouchesRef.current.has(e.pointerId)) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    activeTouchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const pts = [...activeTouchesRef.current.values()];
+
+    if (pts.length === 1 && panStartRef.current) {
+      el.scrollLeft = panStartRef.current.scrollLeft - (pts[0].x - panStartRef.current.x);
+      el.scrollTop = panStartRef.current.scrollTop - (pts[0].y - panStartRef.current.y);
+    } else if (pts.length === 2 && pinchStartRef.current) {
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      setZoomPct(clamp(25, 200, Math.round(pinchStartRef.current.zoomPct * (dist / pinchStartRef.current.dist))));
+      const midX = (pts[0].x + pts[1].x) / 2;
+      const midY = (pts[0].y + pts[1].y) / 2;
+      el.scrollLeft = pinchStartRef.current.scrollLeft - (midX - pinchStartRef.current.midX);
+      el.scrollTop = pinchStartRef.current.scrollTop - (midY - pinchStartRef.current.midY);
+    }
+  };
+
+  const handleScrollerPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    activeTouchesRef.current.delete(e.pointerId);
+    const pts = [...activeTouchesRef.current.values()];
+    const el = scrollerRef.current;
+    if (pts.length === 1 && el) {
+      panStartRef.current = { x: pts[0].x, y: pts[0].y, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
+      pinchStartRef.current = null;
+    } else {
+      panStartRef.current = null;
+      pinchStartRef.current = null;
+    }
+  };
 
   /* =========================
      Seiten (Firestore)
@@ -470,21 +532,9 @@ export default function DocumentEditorPage() {
             <div className="mx-3 h-6 w-px bg-white/10" />
 
             {/* Tools */}
-            <div className="relative">
-              <ToolBtn
-                title={penOnly ? "Stift (Nur Stift aktiv – nochmal tippen zum Ausschalten)" : "Stift (nochmal tippen: Nur Stift / Palm Rejection)"}
-                active={tool === "pen"}
-                onClick={() => {
-                  if (tool === "pen") setPenOnly((v) => !v);
-                  else setTool("pen");
-                }}
-              >
-                <PenIcon />
-              </ToolBtn>
-              {penOnly && (
-                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-emerald-400 border border-black/40" />
-              )}
-            </div>
+            <ToolBtn title="Stift" active={tool === "pen"} onClick={() => setTool("pen")}>
+              <PenIcon />
+            </ToolBtn>
             <ToolBtn title="Marker" active={tool === "marker"} onClick={() => setTool("marker")}>
               <MarkerIcon />
             </ToolBtn>
@@ -630,7 +680,15 @@ export default function DocumentEditorPage() {
       </header>
 
       {/* Seiten-Layout */}
-      <div ref={scrollerRef} className="flex-1 overflow-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+      <div
+        ref={scrollerRef}
+        className="flex-1 overflow-auto"
+        style={{ WebkitOverflowScrolling: "touch" }}
+        onPointerDown={handleScrollerPointerDown}
+        onPointerMove={handleScrollerPointerMove}
+        onPointerUp={handleScrollerPointerUp}
+        onPointerCancel={handleScrollerPointerUp}
+      >
         {!authReady || !prefsReady ? (
           <div className="text-gray-400 p-6">Initialisiere…</div>
         ) : !uid ? (
@@ -649,7 +707,6 @@ export default function DocumentEditorPage() {
                 scale={scale}
                 tool={tool}
                 eraserMode={eraserMode}
-                penOnly={penOnly}
                 color={activeColor}
                 width={activeSize}
                 onAddBelow={() => addPageAfter(idx)}
@@ -915,7 +972,6 @@ function A4LikePage({
   scale,
   tool,
   eraserMode,
-  penOnly,
   color,
   width,
   onAddBelow,
@@ -931,7 +987,6 @@ function A4LikePage({
   scale: number;
   tool: Tool;
   eraserMode: "pixel" | "linie";
-  penOnly: boolean;
   color: string;
   width: number;
   onAddBelow: () => void;
@@ -1037,8 +1092,7 @@ function A4LikePage({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (penOnly && e.pointerType === "touch") return; // Palm Rejection: Handballen ignorieren, Browser darf scrollen
-    e.preventDefault(); // wir zeichnen: Browser soll das nicht als Scroll/Pan interpretieren
+    if (e.pointerType === "touch") return; // Touch ist für Navigation reserviert (Pan/Zoom am Scroller)
     const cvs = canvasRef.current;
     if (!cvs) return;
     cvs.setPointerCapture(e.pointerId);
@@ -1058,13 +1112,12 @@ function A4LikePage({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (penOnly && e.pointerType === "touch") return; // Palm Rejection: Handballen ignorieren
+    if (e.pointerType === "touch") return; // Touch ist für Navigation reserviert (Pan/Zoom am Scroller)
     const point = getCanvasPoint(e);
     if (tool === "eraser") setHoverPos(point);
     else if (hoverPos) setHoverPos(null);
 
     if (!drawingRef.current || !lastPointRef.current) return;
-    e.preventDefault(); // aktives Zeichnen: kein Scroll/Pan während der Geste
 
     if (isLineEraser) {
       applyLineErase(point);
@@ -1161,8 +1214,8 @@ function A4LikePage({
         <div className="absolute top-0 left-0" style={{ width: scaledW, height: scaledH }}>
           <canvas
             ref={canvasRef}
-            className="relative z-10 select-none bg-white rounded-xl ring-1 ring-black/20"
-            style={{ width: scaledW, height: scaledH, cursor: tool === "eraser" ? "none" : "crosshair" }}
+            className="relative z-10 select-none touch-none bg-white rounded-xl ring-1 ring-black/20"
+            style={{ width: scaledW, height: scaledH, cursor: tool === "eraser" ? "none" : "crosshair", touchAction: "none" }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
