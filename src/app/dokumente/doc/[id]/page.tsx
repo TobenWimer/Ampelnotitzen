@@ -147,7 +147,10 @@ export default function DocumentEditorPage() {
   // touch-action:none hat (nötig gegen das iOS Auswahlmenü und damit der Stift nie mitschiebt).
   const activeTouchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const panStartRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
-  const pinchStartRef = useRef<{ dist: number; zoomPct: number; midX: number; midY: number; scrollLeft: number; scrollTop: number } | null>(null);
+  // baselineX/Y: der Inhalts-Punkt unter dem Finger-Mittelpunkt, umgerechnet auf 100% Zoom.
+  // Bleibt über die ganze Geste fix, damit der Zoom wirklich um diesen Punkt herum passiert
+  // statt beim Reinzoomen Richtung einer Ecke zu wandern.
+  const pinchStartRef = useRef<{ dist: number; startZoom: number; baselineX: number; baselineY: number } | null>(null);
 
   const handleScrollerPointerDown = (e: React.PointerEvent) => {
     if (e.pointerType !== "touch") return;
@@ -160,13 +163,16 @@ export default function DocumentEditorPage() {
       panStartRef.current = { x: pts[0].x, y: pts[0].y, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
       pinchStartRef.current = null;
     } else if (pts.length === 2) {
+      const rect = el.getBoundingClientRect();
+      const midX = (pts[0].x + pts[1].x) / 2;
+      const midY = (pts[0].y + pts[1].y) / 2;
+      const contentX = el.scrollLeft + (midX - rect.left);
+      const contentY = el.scrollTop + (midY - rect.top);
       pinchStartRef.current = {
         dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
-        zoomPct,
-        midX: (pts[0].x + pts[1].x) / 2,
-        midY: (pts[0].y + pts[1].y) / 2,
-        scrollLeft: el.scrollLeft,
-        scrollTop: el.scrollTop,
+        startZoom: zoomPct,
+        baselineX: contentX / (zoomPct / 100),
+        baselineY: contentY / (zoomPct / 100),
       };
       panStartRef.current = null;
     }
@@ -183,12 +189,18 @@ export default function DocumentEditorPage() {
       el.scrollLeft = panStartRef.current.scrollLeft - (pts[0].x - panStartRef.current.x);
       el.scrollTop = panStartRef.current.scrollTop - (pts[0].y - panStartRef.current.y);
     } else if (pts.length === 2 && pinchStartRef.current) {
+      const start = pinchStartRef.current;
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      setZoomPct(clamp(25, 200, Math.round(pinchStartRef.current.zoomPct * (dist / pinchStartRef.current.dist))));
+      const newZoom = clamp(25, 200, Math.round(start.startZoom * (dist / start.dist)));
+      setZoomPct(newZoom);
+
+      const rect = el.getBoundingClientRect();
       const midX = (pts[0].x + pts[1].x) / 2;
       const midY = (pts[0].y + pts[1].y) / 2;
-      el.scrollLeft = pinchStartRef.current.scrollLeft - (midX - pinchStartRef.current.midX);
-      el.scrollTop = pinchStartRef.current.scrollTop - (midY - pinchStartRef.current.midY);
+      const newContentX = start.baselineX * (newZoom / 100);
+      const newContentY = start.baselineY * (newZoom / 100);
+      el.scrollLeft = newContentX - (midX - rect.left);
+      el.scrollTop = newContentY - (midY - rect.top);
     }
   };
 
@@ -716,6 +728,9 @@ export default function DocumentEditorPage() {
                 onChangeOrientation={(ori) => changePageOrientation(idx, ori)}
                 onAddStroke={(stroke) => handleAddStroke(idx, stroke)}
                 onEraseStrokes={(removed) => handleEraseStrokes(idx, removed)}
+                onNavDown={handleScrollerPointerDown}
+                onNavMove={handleScrollerPointerMove}
+                onNavUp={handleScrollerPointerUp}
               />
             ))}
           </div>
@@ -981,6 +996,9 @@ function A4LikePage({
   onChangeOrientation,
   onAddStroke,
   onEraseStrokes,
+  onNavDown,
+  onNavMove,
+  onNavUp,
 }: {
   pageIndex: number;
   page: { id: string; order: number; format: Format; orientation: Orientation; strokes: Stroke[] };
@@ -996,6 +1014,9 @@ function A4LikePage({
   onChangeOrientation: (ori: Orientation) => void;
   onAddStroke: (stroke: Stroke) => void;
   onEraseStrokes: (removed: { stroke: Stroke; index: number }[]) => void;
+  onNavDown: (e: React.PointerEvent) => void;
+  onNavMove: (e: React.PointerEvent) => void;
+  onNavUp: (e: React.PointerEvent) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1092,7 +1113,13 @@ function A4LikePage({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "touch") return; // Touch ist für Navigation reserviert (Pan/Zoom am Scroller)
+    if (e.pointerType === "touch") {
+      // Touch ist für Navigation reserviert. Direkt aufrufen statt aufs Hochblubbern zu hoffen
+      // (auf iPadOS unzuverlässig durch touch-action:none), stopPropagation gegen Doppelverarbeitung
+      e.stopPropagation();
+      onNavDown(e);
+      return;
+    }
     const cvs = canvasRef.current;
     if (!cvs) return;
     cvs.setPointerCapture(e.pointerId);
@@ -1112,7 +1139,11 @@ function A4LikePage({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "touch") return; // Touch ist für Navigation reserviert (Pan/Zoom am Scroller)
+    if (e.pointerType === "touch") {
+      e.stopPropagation();
+      onNavMove(e);
+      return;
+    }
     const point = getCanvasPoint(e);
     if (tool === "eraser") setHoverPos(point);
     else if (hoverPos) setHoverPos(null);
@@ -1141,7 +1172,13 @@ function A4LikePage({
     currentStrokeRef.current.push(point);
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerType === "touch") {
+      e.stopPropagation();
+      onNavUp(e);
+      return;
+    }
+
     drawingRef.current = false;
     lastPointRef.current = null;
 
@@ -1158,8 +1195,8 @@ function A4LikePage({
     currentStrokeRef.current = [];
   };
 
-  const handlePointerLeave = () => {
-    handlePointerUp();
+  const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    handlePointerUp(e);
     setHoverPos(null);
   };
 
@@ -1215,7 +1252,14 @@ function A4LikePage({
           <canvas
             ref={canvasRef}
             className="relative z-10 select-none touch-none bg-white rounded-xl ring-1 ring-black/20"
-            style={{ width: scaledW, height: scaledH, cursor: tool === "eraser" ? "none" : "crosshair", touchAction: "none" }}
+            style={{
+              width: scaledW,
+              height: scaledH,
+              cursor: tool === "eraser" ? "none" : "crosshair",
+              touchAction: "none",
+              WebkitTouchCallout: "none",
+              WebkitUserSelect: "none",
+            }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
