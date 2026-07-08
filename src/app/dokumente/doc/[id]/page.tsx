@@ -11,7 +11,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
   addDoc,
@@ -39,11 +39,24 @@ type Tool = "pen" | "marker" | "eraser";
 type Format = "A4" | "A3" | "A2" | "A1";
 type Orientation = "portrait" | "landscape";
 
+// Punkte in absoluten Pixeln (Basis: Format/Ausrichtung bei 100% Zoom).
+// Bewusst NICHT relativ zur Seitengrösse normiert: die Zeichnung soll ihre
+// tatsächliche Grösse behalten, wenn sich nur das Blattformat/die Ausrichtung ändert.
+type StrokePoint = { x: number; y: number };
+type Stroke = { points: StrokePoint[]; color: string; width: number; tool: Tool };
+
+// Undo/Redo-Historie pro Seite: "add" merkt sich den angehängten Strich, "erase" merkt sich
+// jeden vom Linien-Radierer entfernten Strich samt Original-Position (für korrektes Wiedereinfügen)
+type HistoryAction =
+  | { kind: "add"; stroke: Stroke }
+  | { kind: "erase"; removed: { stroke: Stroke; index: number }[] };
+
 type PageDoc = {
   uid: string;
   order: number;
   format: Format;
   orientation: Orientation;
+  strokes?: Stroke[];
   createdAt?: any;
   createdAtClient?: number;
 };
@@ -69,8 +82,6 @@ function clamp(min: number, max: number, v: number) {
 
 export default function DocumentEditorPage() {
   const params = useParams() as { id?: string };
-  theDoc: {
-  }
   const docId = params?.id ?? "";
 
   // Auth (UI-Hinweise)
@@ -91,22 +102,27 @@ export default function DocumentEditorPage() {
     markerColors, setMarkerColors,
     penSizes, setPenSizes,
     markerSizes, setMarkerSizes,
+    eraserSizes, setEraserSizes,
     penIdx, setPenIdx,
     markerIdx, setMarkerIdx,
     sizeIdxPen, setSizeIdxPen,
     sizeIdxMarker, setSizeIdxMarker,
+    sizeIdxEraser, setSizeIdxEraser,
     currentPenColor,
     currentMarkerColor,
     currentPenSize,
     currentMarkerSize,
+    currentEraserSize,
   } = useEditorPrefs();
 
   // UI: aktives Tool (nicht persistent)
   const [tool, setTool] = useState<Tool>("pen");
+  // Radierer-Modus: "pixel" radiert punktuell, "linie" löscht den ganzen berührten Strich
+  const [eraserMode, setEraserMode] = useState<"pixel" | "linie">("pixel");
 
   // Inline-Editoren (Picker)
   const [editColorIdx, setEditColorIdx] = useState<{ type: "pen" | "marker"; idx: number } | null>(null);
-  const [editSizeIdx, setEditSizeIdx] = useState<{ type: "pen" | "marker"; idx: number } | null>(null);
+  const [editSizeIdx, setEditSizeIdx] = useState<{ type: "pen" | "marker" | "eraser"; idx: number } | null>(null);
 
   // Zoom
   const [zoomPct, setZoomPct] = useState(100);
@@ -128,12 +144,17 @@ export default function DocumentEditorPage() {
   /* =========================
      Seiten (Firestore)
      ========================= */
-  type PageRef = { id: string; order: number; format: Format; orientation: Orientation };
+  type PageRef = { id: string; order: number; format: Format; orientation: Orientation; strokes: Stroke[] };
 
   const [pages, setPages] = useState<PageRef[]>([]);
   const [pagesReady, setPagesReady] = useState(false);
   const creatingInitialRef = useRef(false);
   const [debugMsg, setDebugMsg] = useState<string>("");
+
+  // Undo/Redo: bezieht sich auf die zuletzt bearbeitete Seite, Historie pro Seite
+  const lastPageIndexRef = useRef<number | null>(null);
+  const undoStacksRef = useRef<Record<string, HistoryAction[]>>({});
+  const redoStacksRef = useRef<Record<string, HistoryAction[]>>({});
 
   useEffect(() => {
     if (!authReady || !uid || !docId) return;
@@ -171,6 +192,7 @@ export default function DocumentEditorPage() {
             order: data.order ?? 0,
             format: (data.format as Format) ?? "A4",
             orientation: (data.orientation as Orientation) ?? "portrait",
+            strokes: data.strokes ?? [],
           };
         });
         arr.sort((a, b) => a.order - b.order);
@@ -237,6 +259,7 @@ export default function DocumentEditorPage() {
       order: index + 1,
       format: refPage.format,
       orientation: refPage.orientation,
+      strokes: [],
     });
     await reindexPages(next.map((p, i) => ({ ...p, order: i })));
   };
@@ -260,6 +283,7 @@ export default function DocumentEditorPage() {
       order: index + 1,
       format: refPage.format,
       orientation: refPage.orientation,
+      strokes: [],
     });
     await reindexPages(next.map((p, i) => ({ ...p, order: i })));
   };
@@ -273,16 +297,100 @@ export default function DocumentEditorPage() {
     await reindexPages(next.map((p, i) => ({ ...p, order: i })));
   };
 
+  // Striche behalten ihre absolute Pixelgrösse/Position, wenn sich nur das Blatt ändert
+  // (kein Skalieren, kein Rotieren). Würde dadurch etwas ausserhalb des neuen Blatts liegen,
+  // wird vorher eine Bestätigung verlangt.
+  const strokesOverflow = (strokes: Stroke[], w: number, h: number) =>
+    strokes.some((s) => s.points.some((p) => p.x > w || p.y > h));
+
   const changePageFormat = async (index: number, format: Format) => {
     const coll = collection(db, "documents", docId, "pages");
     const target = pages[index];
+    if (target.format === format) return;
+    const { w, h } = sizeFor(format, target.orientation);
+    if (strokesOverflow(target.strokes, w, h)) {
+      const ok = confirm("Das neue Format ist kleiner als die Zeichnung. Teile davon liegen dann ausserhalb des Blatts. Trotzdem ändern?");
+      if (!ok) return;
+    }
     await updateDoc(doc(coll, target.id), { format });
   };
 
   const changePageOrientation = async (index: number, orientation: Orientation) => {
     const coll = collection(db, "documents", docId, "pages");
     const target = pages[index];
+    if (target.orientation === orientation) return;
+    const { w, h } = sizeFor(target.format, orientation);
+    if (strokesOverflow(target.strokes, w, h)) {
+      const ok = confirm("Die neue Ausrichtung ist kleiner als die Zeichnung. Teile davon liegen dann ausserhalb des Blatts. Trotzdem ändern?");
+      if (!ok) return;
+    }
     await updateDoc(doc(coll, target.id), { orientation });
+  };
+
+  const saveStrokes = async (index: number, strokes: Stroke[]) => {
+    const coll = collection(db, "documents", docId, "pages");
+    const target = pages[index];
+    await updateDoc(doc(coll, target.id), { strokes });
+  };
+
+  const pushHistory = (pageId: string, action: HistoryAction) => {
+    undoStacksRef.current[pageId] = [...(undoStacksRef.current[pageId] ?? []), action];
+    redoStacksRef.current[pageId] = [];
+  };
+
+  const handleAddStroke = (index: number, stroke: Stroke) => {
+    lastPageIndexRef.current = index;
+    const target = pages[index];
+    pushHistory(target.id, { kind: "add", stroke });
+    saveStrokes(index, [...target.strokes, stroke]);
+  };
+
+  const handleEraseStrokes = (index: number, removed: { stroke: Stroke; index: number }[]) => {
+    if (removed.length === 0) return;
+    lastPageIndexRef.current = index;
+    const target = pages[index];
+    pushHistory(target.id, { kind: "erase", removed });
+    const removeIdx = new Set(removed.map((r) => r.index));
+    saveStrokes(index, target.strokes.filter((_, i) => !removeIdx.has(i)));
+  };
+
+  const handleUndo = () => {
+    const idx = lastPageIndexRef.current;
+    if (idx === null) return;
+    const target = pages[idx];
+    const stack = undoStacksRef.current[target.id] ?? [];
+    if (stack.length === 0) return;
+    const action = stack[stack.length - 1];
+    undoStacksRef.current[target.id] = stack.slice(0, -1);
+    redoStacksRef.current[target.id] = [...(redoStacksRef.current[target.id] ?? []), action];
+
+    if (action.kind === "add") {
+      saveStrokes(idx, target.strokes.slice(0, -1));
+    } else {
+      const next = [...target.strokes];
+      [...action.removed]
+        .sort((a, b) => a.index - b.index)
+        .forEach(({ stroke, index }) => next.splice(Math.min(index, next.length), 0, stroke));
+      saveStrokes(idx, next);
+    }
+  };
+
+  const handleRedo = () => {
+    const idx = lastPageIndexRef.current;
+    if (idx === null) return;
+    const target = pages[idx];
+    const stack = redoStacksRef.current[target.id] ?? [];
+    if (stack.length === 0) return;
+    const action = stack[stack.length - 1];
+    redoStacksRef.current[target.id] = stack.slice(0, -1);
+    undoStacksRef.current[target.id] = [...(undoStacksRef.current[target.id] ?? []), action];
+
+    if (action.kind === "add") {
+      saveStrokes(idx, [...target.strokes, action.stroke]);
+    } else {
+      const removeIdx = new Set(action.removed.map((r) => r.index));
+      saveStrokes(idx, target.strokes.filter((_, i) => !removeIdx.has(i)));
+    }
   };
 
   /* =========================
@@ -327,7 +435,7 @@ export default function DocumentEditorPage() {
   );
 
   const activeColor = tool === "pen" ? currentPenColor : tool === "marker" ? currentMarkerColor : "#000000";
-  const activeSize = tool === "pen" ? currentPenSize : tool === "marker" ? currentMarkerSize : currentPenSize;
+  const activeSize = tool === "pen" ? currentPenSize : tool === "marker" ? currentMarkerSize : currentEraserSize;
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
@@ -348,11 +456,11 @@ export default function DocumentEditorPage() {
 
             <div className="mx-3 h-6 w-px bg-white/10" />
 
-            {/* Undo/Redo – Platzhalter */}
-            <ToolBtn title="Rückgängig" onClick={() => {}}>
+            {/* Undo/Redo – bezieht sich auf die zuletzt bearbeitete Seite */}
+            <ToolBtn title="Rückgängig" onClick={handleUndo}>
               <UndoIcon />
             </ToolBtn>
-            <ToolBtn title="Wiederholen" onClick={() => {}}>
+            <ToolBtn title="Wiederholen" onClick={handleRedo}>
               <RedoIcon />
             </ToolBtn>
 
@@ -421,15 +529,47 @@ export default function DocumentEditorPage() {
                   />
                 </>
               )}
+              {tool === "eraser" && (
+                <>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setEraserMode("pixel")}
+                      className={`px-3 py-1.5 rounded-lg text-xs border transition ${eraserMode === "pixel" ? "bg-white text-black border-white" : "border-white/25 text-white/80 hover:bg-white/10"}`}
+                    >
+                      Pixel
+                    </button>
+                    <button
+                      onClick={() => setEraserMode("linie")}
+                      className={`px-3 py-1.5 rounded-lg text-xs border transition ${eraserMode === "linie" ? "bg-white text-black border-white" : "border-white/25 text-white/80 hover:bg-white/10"}`}
+                    >
+                      Linie
+                    </button>
+                  </div>
+                  <Divider dark />
+                  <SizeRow
+                    type="eraser"
+                    sizes={eraserSizes}
+                    selectedIdx={sizeIdxEraser}
+                    onPick={(i) => { setSizeIdxEraser(i); setEditSizeIdx(null); }}
+                    editSizeIdx={editSizeIdx}
+                    setEditSizeIdx={setEditSizeIdx}
+                    setSizes={setEraserSizes}
+                  />
+                </>
+              )}
             </div>
 
             <div className="hidden md:flex items-center gap-2 ml-2 text-xs text-gray-200">
-              <span className="inline-flex items-center gap-1">
-                <span>Farbe</span>
-                <span className="inline-block h-4 w-4 rounded-full border border-white/20" style={{ background: activeColor }} />
-              </span>
-              <span>•</span>
-              <span>Strich: {activeSize}px</span>
+              {tool !== "eraser" && (
+                <>
+                  <span className="inline-flex items-center gap-1">
+                    <span>Farbe</span>
+                    <span className="inline-block h-4 w-4 rounded-full border border-white/20" style={{ background: activeColor }} />
+                  </span>
+                  <span>•</span>
+                </>
+              )}
+              <span>{tool === "eraser" ? "Radius" : "Strich"}: {activeSize}px</span>
             </div>
 
             <div className="flex-1" />
@@ -492,11 +632,17 @@ export default function DocumentEditorPage() {
                 pageIndex={idx}
                 page={p}
                 scale={scale}
+                tool={tool}
+                eraserMode={eraserMode}
+                color={activeColor}
+                width={activeSize}
                 onAddBelow={() => addPageAfter(idx)}
                 onDuplicateBelow={() => duplicatePageAfter(idx)}
                 onDelete={() => deletePageAt(idx)}
                 onChangeFormat={(fmt) => changePageFormat(idx, fmt)}
                 onChangeOrientation={(ori) => changePageOrientation(idx, ori)}
+                onAddStroke={(stroke) => handleAddStroke(idx, stroke)}
+                onEraseStrokes={(removed) => handleEraseStrokes(idx, removed)}
               />
             ))}
           </div>
@@ -589,12 +735,12 @@ function SizeRow({
   setEditSizeIdx,
   setSizes,
 }: {
-  type: "pen" | "marker";
+  type: "pen" | "marker" | "eraser";
   sizes: number[];
   selectedIdx: number;
   onPick: (i: number) => void;
-  editSizeIdx: { type: "pen" | "marker"; idx: number } | null;
-  setEditSizeIdx: (v: { type: "pen" | "marker"; idx: number } | null) => void;
+  editSizeIdx: { type: "pen" | "marker" | "eraser"; idx: number } | null;
+  setEditSizeIdx: (v: { type: "pen" | "marker" | "eraser"; idx: number } | null) => void;
   setSizes: React.Dispatch<React.SetStateAction<number[]>>;
 }) {
   return (
@@ -677,13 +823,13 @@ function InlineSize({
   onPick, editSizeIdx, setEditSizeIdx,
   setSizes,
 }: {
-  type: "pen" | "marker";
+  type: "pen" | "marker" | "eraser";
   idx: number;
   value: number;
   selected?: boolean;
   onPick: () => void;
-  editSizeIdx: { type: "pen" | "marker"; idx: number } | null;
-  setEditSizeIdx: (v: { type: "pen" | "marker"; idx: number } | null) => void;
+  editSizeIdx: { type: "pen" | "marker" | "eraser"; idx: number } | null;
+  setEditSizeIdx: (v: { type: "pen" | "marker" | "eraser"; idx: number } | null) => void;
   setSizes: React.Dispatch<React.SetStateAction<number[]>>;
 }) {
   return (
@@ -728,52 +874,218 @@ function InlineSize({
    A-Seite (Canvas-Platzhalter + Seitenmenü)
    ========================= */
 
+// Kürzester Abstand von Punkt p zu Liniensegment a-b
+function distToSegment(p: StrokePoint, a: StrokePoint, b: StrokePoint) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+function strokeHit(stroke: Stroke, p: StrokePoint, radius: number) {
+  if (stroke.points.length < 2) {
+    return stroke.points.some((sp) => Math.hypot(p.x - sp.x, p.y - sp.y) <= radius);
+  }
+  for (let i = 1; i < stroke.points.length; i++) {
+    if (distToSegment(p, stroke.points[i - 1], stroke.points[i]) <= radius) return true;
+  }
+  return false;
+}
+
 function A4LikePage({
   pageIndex,
   page,
   scale,
+  tool,
+  eraserMode,
+  color,
+  width,
   onAddBelow,
   onDuplicateBelow,
   onDelete,
   onChangeFormat,
   onChangeOrientation,
+  onAddStroke,
+  onEraseStrokes,
 }: {
   pageIndex: number;
-  page: { id: string; order: number; format: Format; orientation: Orientation };
+  page: { id: string; order: number; format: Format; orientation: Orientation; strokes: Stroke[] };
   scale: number;
+  tool: Tool;
+  eraserMode: "pixel" | "linie";
+  color: string;
+  width: number;
   onAddBelow: () => void;
   onDuplicateBelow: () => void;
   onDelete: () => void;
   onChangeFormat: (fmt: Format) => void;
   onChangeOrientation: (ori: Orientation) => void;
+  onAddStroke: (stroke: Stroke) => void;
+  onEraseStrokes: (removed: { stroke: Stroke; index: number }[]) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [formatOpen, setFormatOpen] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const currentStrokeRef = useRef<StrokePoint[]>([]);
+  const currentStyleRef = useRef<{ color: string; width: number; tool: Tool }>({ color, width, tool: "pen" });
+  // Linien-Radierer: verbleibende Striche mit Original-Index (für Undo), Treffer dieser Geste
+  const eraseWorkingRef = useRef<{ stroke: Stroke; index: number }[] | null>(null);
+  const eraseHitsRef = useRef<{ stroke: Stroke; index: number }[]>([]);
 
-  useEffect(() => {
-    const cvs = canvasRef.current;
-    if (!cvs) return;
-    const { w, h } = sizeFor(page.format, page.orientation);
-    cvs.width = w;
-    cvs.height = h;
-    const ctx = cvs.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, w, h);
-    }
-  }, [page.format, page.orientation]);
+  const drawStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke) => {
+    if (stroke.points.length < 2) return;
+    ctx.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth = stroke.width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    stroke.points.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+  };
 
   const { w, h } = sizeFor(page.format, page.orientation);
   const scaledW = Math.round(w * scale);
   const scaledH = Math.round(h * scale);
+
+  // Weiss füllen, Striche replayen (Marker immer unter Pen, sonst "fogt" ein nachträglicher
+  // Marker die Pen-Striche ein). Wiederverwendet vom Redraw-Effect und vom Linien-Radierer.
+  const redrawWith = useCallback((strokesToUse: Stroke[]) => {
+    const cvs = canvasRef.current;
+    const ctx = cvs?.getContext("2d");
+    if (!cvs || !ctx) return;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, w, h);
+    const ordered = [
+      ...strokesToUse.filter((s) => s.tool === "marker"),
+      ...strokesToUse.filter((s) => s.tool !== "marker"),
+    ];
+    ordered.forEach((s) => drawStroke(ctx, s));
+  }, [w, h]);
+
+  // Seite neu aufbauen: Auflösung an Zoom/Displaydichte anpassen (sonst wird's beim Reinzoomen unscharf)
+  useEffect(() => {
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const resFactor = clamp(1, 3, scale * dpr);
+    cvs.width = Math.round(w * resFactor);
+    cvs.height = Math.round(h * resFactor);
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(resFactor, 0, 0, resFactor, 0, 0);
+    redrawWith(page.strokes);
+  }, [page.format, page.orientation, page.strokes, scale, w, h, redrawWith]);
 
   const handleCanvasDown = () => {
     if (menuOpen || formatOpen) {
       setMenuOpen(false);
       setFormatOpen(false);
     }
+  };
+
+  // Liefert die Position in den gleichen absoluten Basis-Pixeln, in denen Striche gespeichert
+  // werden (unabhängig von Zoom/Displaydichte, die nur die Canvas-Auflösung betreffen)
+  const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const cvs = canvasRef.current!;
+    const rect = cvs.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * w,
+      y: ((e.clientY - rect.top) / rect.height) * h,
+    };
+  };
+
+  const isLineEraser = tool === "eraser" && eraserMode === "linie";
+
+  // Trifft der Punkt einen der noch verbliebenen Striche, wird er (samt Original-Index)
+  // aus dem Arbeits-Set entfernt und in den Treffern dieser Geste gesammelt
+  const applyLineErase = (point: StrokePoint) => {
+    const current = eraseWorkingRef.current;
+    if (!current) return;
+    const hits = current.filter(({ stroke }) => strokeHit(stroke, point, width / 2));
+    if (hits.length === 0) return;
+    const hitSet = new Set(hits);
+    const remaining = current.filter((entry) => !hitSet.has(entry));
+    eraseHitsRef.current = [...eraseHitsRef.current, ...hits];
+    eraseWorkingRef.current = remaining;
+    redrawWith(remaining.map((entry) => entry.stroke));
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    cvs.setPointerCapture(e.pointerId);
+    drawingRef.current = true;
+    const point = getCanvasPoint(e);
+    lastPointRef.current = point;
+
+    if (isLineEraser) {
+      eraseWorkingRef.current = page.strokes.map((stroke, index) => ({ stroke, index }));
+      eraseHitsRef.current = [];
+      applyLineErase(point);
+      return;
+    }
+
+    currentStyleRef.current = { color, width, tool };
+    currentStrokeRef.current = [point];
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const point = getCanvasPoint(e);
+    if (tool === "eraser") setHoverPos(point);
+    else if (hoverPos) setHoverPos(null);
+
+    if (!drawingRef.current || !lastPointRef.current) return;
+
+    if (isLineEraser) {
+      applyLineErase(point);
+      lastPointRef.current = point;
+      return;
+    }
+
+    const cvs = canvasRef.current;
+    const ctx = cvs?.getContext("2d");
+    if (!cvs || !ctx) return;
+    ctx.globalCompositeOperation = currentStyleRef.current.tool === "eraser" ? "destination-out" : "source-over";
+    ctx.strokeStyle = currentStyleRef.current.color;
+    ctx.lineWidth = currentStyleRef.current.width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+    lastPointRef.current = point;
+    currentStrokeRef.current.push(point);
+  };
+
+  const handlePointerUp = () => {
+    drawingRef.current = false;
+    lastPointRef.current = null;
+
+    if (isLineEraser) {
+      if (eraseHitsRef.current.length > 0) onEraseStrokes(eraseHitsRef.current);
+      eraseWorkingRef.current = null;
+      eraseHitsRef.current = [];
+      return;
+    }
+
+    if (currentStrokeRef.current.length > 1) {
+      onAddStroke({ points: currentStrokeRef.current, ...currentStyleRef.current });
+    }
+    currentStrokeRef.current = [];
+  };
+
+  const handlePointerLeave = () => {
+    handlePointerUp();
+    setHoverPos(null);
   };
 
   const copyPageToClipboard = async () => {
@@ -822,21 +1134,30 @@ function A4LikePage({
           }}
         />
 
-        {/* skaliertes Papier */}
-        <div
-          className="absolute top-0 left-0"
-          style={{
-            width: w,
-            height: h,
-            transform: `scale(${scale})`,
-            transformOrigin: "top left",
-          }}
-        >
+        {/* Papier: CSS-Grösse wächst direkt mit dem Zoom mit (kein transform:scale mehr),
+            sonst würde ein bereits fertig gerastertes Bild nachträglich hochskaliert und unscharf */}
+        <div className="absolute top-0 left-0" style={{ width: scaledW, height: scaledH }}>
           <canvas
             ref={canvasRef}
-            className="relative z-10 select-none bg-white rounded-xl ring-1 ring-black/20"
-            style={{ width: w, height: h, cursor: "default" }}
+            className="relative z-10 select-none touch-none bg-white rounded-xl ring-1 ring-black/20"
+            style={{ width: scaledW, height: scaledH, cursor: tool === "eraser" ? "none" : "crosshair", touchAction: "none" }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerLeave}
+            onPointerCancel={handlePointerLeave}
           />
+          {tool === "eraser" && hoverPos && (
+            <div
+              className="absolute z-20 rounded-full border-2 border-black/70 bg-white/20 pointer-events-none"
+              style={{
+                left: hoverPos.x * scale - (width * scale) / 2,
+                top: hoverPos.y * scale - (width * scale) / 2,
+                width: width * scale,
+                height: width * scale,
+              }}
+            />
+          )}
         </div>
 
         {/* Seitenzahl */}

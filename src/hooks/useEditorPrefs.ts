@@ -15,10 +15,12 @@ export type EditorPrefs = {
   markerColors: string[];  // Hex ohne Alpha (Alpha fügt UI hinzu)
   penSizes: number[];
   markerSizes: number[];
+  eraserSizes: number[];
   penIdx: number;
   markerIdx: number;
   sizeIdxPen: number;
   sizeIdxMarker: number;
+  sizeIdxEraser: number;
   updatedAt?: any;
 };
 
@@ -28,10 +30,12 @@ const DEFAULTS: EditorPrefs = {
   markerColors: ["#FBBF24", "#60A5FA", "#34D399", "#F472B6", "#A78BFA"],
   penSizes: [2, 4, 7],
   markerSizes: [8, 16, 24],
+  eraserSizes: [10, 20, 40],
   penIdx: 0,
   markerIdx: 0,
   sizeIdxPen: 1,
   sizeIdxMarker: 1,
+  sizeIdxEraser: 1,
 };
 
 function clampIdx<T>(arr: T[], i: number, fallback = 0) {
@@ -77,11 +81,13 @@ export function useEditorPrefs() {
   const [markerColors, _setMarkerColors] = useState<string[]>(DEFAULTS.markerColors);
   const [penSizes, _setPenSizes] = useState<number[]>(DEFAULTS.penSizes);
   const [markerSizes, _setMarkerSizes] = useState<number[]>(DEFAULTS.markerSizes);
+  const [eraserSizes, _setEraserSizes] = useState<number[]>(DEFAULTS.eraserSizes);
 
   const [penIdx, _setPenIdx] = useState<number>(DEFAULTS.penIdx);
   const [markerIdx, _setMarkerIdx] = useState<number>(DEFAULTS.markerIdx);
   const [sizeIdxPen, _setSizeIdxPen] = useState<number>(DEFAULTS.sizeIdxPen);
   const [sizeIdxMarker, _setSizeIdxMarker] = useState<number>(DEFAULTS.sizeIdxMarker);
+  const [sizeIdxEraser, _setSizeIdxEraser] = useState<number>(DEFAULTS.sizeIdxEraser);
 
   // „Jitter“-Schutz
   const firstLoadRef = useRef(true);
@@ -98,7 +104,12 @@ export function useEditorPrefs() {
     const off = onSnapshot(
       ref,
       (snap) => {
-        if (!snap.exists()) { return; }
+        if (!snap.exists()) {
+          // Dokument existiert noch nicht (Race mit dem parallelen setDoc oben) - trotzdem
+          // als "initial geladen" markieren, sonst werden Edits in diesem Fenster stillschweigend nicht gespeichert
+          firstLoadRef.current = false;
+          return;
+        }
         const d = snap.data() as Partial<EditorPrefs>;
 
         // Eigenes frisches Save ignorieren (um „Zurückspringen“ zu vermeiden)
@@ -115,11 +126,13 @@ export function useEditorPrefs() {
         const nextMarkerColors= Array.isArray(d.markerColors)&& d.markerColors.length? d.markerColors.map(stripAlpha) : markerColors;
         const nextPenSizes    = Array.isArray(d.penSizes)    && d.penSizes.length    ? d.penSizes : penSizes;
         const nextMarkerSizes = Array.isArray(d.markerSizes) && d.markerSizes.length ? d.markerSizes : markerSizes;
+        const nextEraserSizes = Array.isArray(d.eraserSizes) && d.eraserSizes.length ? d.eraserSizes : eraserSizes;
 
         _setPenColors(nextPenColors);
         _setMarkerColors(nextMarkerColors);
         _setPenSizes(nextPenSizes);
         _setMarkerSizes(nextMarkerSizes);
+        _setEraserSizes(nextEraserSizes);
 
         // Indizes — OHNE funktionale Setter, explizit berechnet
         if (typeof d.penIdx === "number") {
@@ -134,6 +147,9 @@ export function useEditorPrefs() {
         if (typeof d.sizeIdxMarker === "number") {
           _setSizeIdxMarker(clampIdx(nextMarkerSizes, d.sizeIdxMarker, sizeIdxMarker));
         }
+        if (typeof d.sizeIdxEraser === "number") {
+          _setSizeIdxEraser(clampIdx(nextEraserSizes, d.sizeIdxEraser, sizeIdxEraser));
+        }
 
         firstLoadRef.current = false;
       },
@@ -147,21 +163,43 @@ export function useEditorPrefs() {
 
   // Debounced Save
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingPayloadRef = useRef<EditorPrefs | null>(null);
+
+  const flushPending = (uidNow: string | null) => {
+    if (!uidNow || !pendingPayloadRef.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = null;
+    const payload = pendingPayloadRef.current;
+    pendingPayloadRef.current = null;
+    lastLocalWriteRef.current = Date.now();
+    setDoc(doc(db, "editorPrefs", uidNow), { ...payload, updatedAt: serverTimestamp() }, { merge: true })
+      .catch((e) => console.warn("[editorPrefs] save failed:", e));
+  };
+
   const save = (payload: EditorPrefs) => {
     if (!uid) return;
+    pendingPayloadRef.current = payload;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      lastLocalWriteRef.current = Date.now();
-      setDoc(doc(db, "editorPrefs", uid), { ...payload, updatedAt: serverTimestamp() }, { merge: true })
-        .catch((e) => console.warn("[editorPrefs] save failed:", e));
-    }, 220);
+    saveTimer.current = setTimeout(() => flushPending(uid), 220);
   };
+
+  // Bei Tab-Wechsel/Reload/Schliessen: ausstehenden Save sofort auslösen statt auf den Debounce zu warten
+  useEffect(() => {
+    const onHide = () => flushPending(uid);
+    const onVisibility = () => { if (document.visibilityState === "hidden") onHide(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, [uid]);
 
   // Öffentliche Setter (lösen Save aus)
   const snapshot = (): EditorPrefs => ({
     uid: uid ?? "",
-    penColors, markerColors, penSizes, markerSizes,
-    penIdx, markerIdx, sizeIdxPen, sizeIdxMarker,
+    penColors, markerColors, penSizes, markerSizes, eraserSizes,
+    penIdx, markerIdx, sizeIdxPen, sizeIdxMarker, sizeIdxEraser,
   });
 
   const setPenColors = (v: string[] | ((prev: string[]) => string[])) => {
@@ -184,17 +222,24 @@ export function useEditorPrefs() {
     _setMarkerSizes(next);
     if (!firstLoadRef.current) save({ ...snapshot(), markerSizes: next });
   };
+  const setEraserSizes = (v: number[] | ((prev: number[]) => number[])) => {
+    const next = typeof v === "function" ? v(eraserSizes) : v;
+    _setEraserSizes(next);
+    if (!firstLoadRef.current) save({ ...snapshot(), eraserSizes: next });
+  };
 
   const setPenIdx = (i: number) => { _setPenIdx(i); if (!firstLoadRef.current) save({ ...snapshot(), penIdx: i }); };
   const setMarkerIdx = (i: number) => { _setMarkerIdx(i); if (!firstLoadRef.current) save({ ...snapshot(), markerIdx: i }); };
   const setSizeIdxPen = (i: number) => { _setSizeIdxPen(i); if (!firstLoadRef.current) save({ ...snapshot(), sizeIdxPen: i }); };
   const setSizeIdxMarker = (i: number) => { _setSizeIdxMarker(i); if (!firstLoadRef.current) save({ ...snapshot(), sizeIdxMarker: i }); };
+  const setSizeIdxEraser = (i: number) => { _setSizeIdxEraser(i); if (!firstLoadRef.current) save({ ...snapshot(), sizeIdxEraser: i }); };
 
   // Abgeleitet für UI
   const currentPenColor    = useMemo(() => stripAlpha(penColors[clampIdx(penColors, penIdx)] ?? "#111827"), [penColors, penIdx]);
   const currentMarkerColor = useMemo(() => ensureAlpha(stripAlpha(markerColors[clampIdx(markerColors, markerIdx)] ?? "#FBBF24"), 0.66), [markerColors, markerIdx]);
   const currentPenSize     = useMemo(() => penSizes[clampIdx(penSizes, sizeIdxPen)] ?? 2, [penSizes, sizeIdxPen]);
   const currentMarkerSize  = useMemo(() => markerSizes[clampIdx(markerSizes, sizeIdxMarker)] ?? 16, [markerSizes, sizeIdxMarker]);
+  const currentEraserSize  = useMemo(() => eraserSizes[clampIdx(eraserSizes, sizeIdxEraser)] ?? 20, [eraserSizes, sizeIdxEraser]);
 
   return {
     // auth/ready
@@ -205,17 +250,20 @@ export function useEditorPrefs() {
     markerColors, setMarkerColors,
     penSizes, setPenSizes,
     markerSizes, setMarkerSizes,
+    eraserSizes, setEraserSizes,
 
     // indices + setter
     penIdx, setPenIdx,
     markerIdx, setMarkerIdx,
     sizeIdxPen, setSizeIdxPen,
     sizeIdxMarker, setSizeIdxMarker,
+    sizeIdxEraser, setSizeIdxEraser,
 
     // abgeleitet
     currentPenColor,
     currentMarkerColor,
     currentPenSize,
     currentMarkerSize,
+    currentEraserSize,
   };
 }

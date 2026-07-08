@@ -116,13 +116,13 @@ service cloud.firestore {
         allow create: if isSignedIn()
                       && authUid() == request.resource.data.uid
                       && request.resource.data.keys().hasOnly([
-                        'uid','order','format','orientation','createdAt','createdAtClient'
+                        'uid','order','format','orientation','strokes','createdAt','createdAtClient'
                       ]);
         allow update: if isSignedIn()
                       && authUid() == resource.data.uid
                       && request.resource.data.uid == resource.data.uid
                       && request.resource.data.keys().hasOnly([
-                        'uid','order','format','orientation','createdAt','createdAtClient'
+                        'uid','order','format','orientation','strokes','createdAt','createdAtClient'
                       ]);
         allow delete: if isSignedIn()
                       && (
@@ -136,29 +136,7 @@ service cloud.firestore {
        Editor-Presets
        ========================= */
     match /editorPrefs/{prefUid} {
-      allow read: if isSignedIn() && authUid() == prefUid;
-      allow create: if isSignedIn()
-                    && authUid() == request.resource.data.uid
-                    && request.resource.data.keys().hasOnly([
-                      'uid',
-                      'penColors','markerColors',
-                      'penSizes','markerSizes',
-                      'penIdx','markerIdx',
-                      'sizeIdxPen','sizeIdxMarker',
-                      'updatedAt'
-                    ]);
-      allow update: if isSignedIn()
-                    && authUid() == resource.data.uid
-                    && request.resource.data.uid == resource.data.uid
-                    && request.resource.data.keys().hasOnly([
-                      'uid',
-                      'penColors','markerColors',
-                      'penSizes','markerSizes',
-                      'penIdx','markerIdx',
-                      'sizeIdxPen','sizeIdxMarker',
-                      'updatedAt'
-                    ]);
-      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+      allow read, write: if isSignedIn() && authUid() == prefUid;
     }
 
     /* =========================
