@@ -119,6 +119,9 @@ export default function DocumentEditorPage() {
   const [tool, setTool] = useState<Tool>("pen");
   // Radierer-Modus: "pixel" radiert punktuell, "linie" löscht den ganzen berührten Strich
   const [eraserMode, setEraserMode] = useState<"pixel" | "linie">("pixel");
+  // Palm Rejection: blockiert Touch-Eingaben (Handballen), Stift und Maus bleiben erlaubt.
+  // Umschalten durch erneutes Antippen des Stift-Buttons, während Stift schon aktiv ist.
+  const [penOnly, setPenOnly] = useState(false);
 
   // Inline-Editoren (Picker)
   const [editColorIdx, setEditColorIdx] = useState<{ type: "pen" | "marker"; idx: number } | null>(null);
@@ -467,9 +470,21 @@ export default function DocumentEditorPage() {
             <div className="mx-3 h-6 w-px bg-white/10" />
 
             {/* Tools */}
-            <ToolBtn title="Stift" active={tool === "pen"} onClick={() => setTool("pen")}>
-              <PenIcon />
-            </ToolBtn>
+            <div className="relative">
+              <ToolBtn
+                title={penOnly ? "Stift (Nur Stift aktiv – nochmal tippen zum Ausschalten)" : "Stift (nochmal tippen: Nur Stift / Palm Rejection)"}
+                active={tool === "pen"}
+                onClick={() => {
+                  if (tool === "pen") setPenOnly((v) => !v);
+                  else setTool("pen");
+                }}
+              >
+                <PenIcon />
+              </ToolBtn>
+              {penOnly && (
+                <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-emerald-400 border border-black/40" />
+              )}
+            </div>
             <ToolBtn title="Marker" active={tool === "marker"} onClick={() => setTool("marker")}>
               <MarkerIcon />
             </ToolBtn>
@@ -634,6 +649,7 @@ export default function DocumentEditorPage() {
                 scale={scale}
                 tool={tool}
                 eraserMode={eraserMode}
+                penOnly={penOnly}
                 color={activeColor}
                 width={activeSize}
                 onAddBelow={() => addPageAfter(idx)}
@@ -899,6 +915,7 @@ function A4LikePage({
   scale,
   tool,
   eraserMode,
+  penOnly,
   color,
   width,
   onAddBelow,
@@ -914,6 +931,7 @@ function A4LikePage({
   scale: number;
   tool: Tool;
   eraserMode: "pixel" | "linie";
+  penOnly: boolean;
   color: string;
   width: number;
   onAddBelow: () => void;
@@ -1019,6 +1037,7 @@ function A4LikePage({
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (penOnly && e.pointerType === "touch") return; // Palm Rejection: Handballen ignorieren
     const cvs = canvasRef.current;
     if (!cvs) return;
     cvs.setPointerCapture(e.pointerId);
@@ -1038,6 +1057,7 @@ function A4LikePage({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (penOnly && e.pointerType === "touch") return; // Palm Rejection: Handballen ignorieren
     const point = getCanvasPoint(e);
     if (tool === "eraser") setHoverPos(point);
     else if (hoverPos) setHoverPos(null);
