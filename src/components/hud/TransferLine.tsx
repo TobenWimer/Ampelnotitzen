@@ -6,7 +6,9 @@ import { Smartphone, Monitor } from "lucide-react";
 // Transfer-Leitung: lineares Gegenstueck zu den runden Anzeigen der anderen Module.
 // Zeigt die Datenstrecke zwischen zwei Geraeten - Pakete laufen nur, wenn wirklich
 // etwas in der Ablage liegt, sonst atmet die Leitung nur langsam ("Leitung frei").
-// Klick dreht die Uebertragungsrichtung um (reine Spielerei)
+// Klick dreht die Uebertragungsrichtung um (reine Spielerei).
+// Mittig auf der Leitung sitzt zusaetzlich ein bewusst unauffaelliger Punkt, der die
+// Seite neu laedt - bei wackliger Verbindung bleibt Firestore gelegentlich haengen
 export type TransferActivity = { type: "upload" | "download"; pct: number } | null;
 
 export function TransferLine({
@@ -68,9 +70,11 @@ export function TransferLine({
   );
 
   return (
-    <button
+    // bewusst ein div statt button: der Reload-Punkt weiter unten ist ein echter
+    // Button, und Button-in-Button waere ungueltiges HTML
+    <div
       onClick={() => setReverse((v) => !v)}
-      className="hud-panel rounded-2xl p-4 w-full block text-left"
+      className="hud-panel rounded-2xl p-4 w-full block text-left cursor-pointer"
       title="Übertragungsrichtung umkehren"
     >
       <div className="relative z-10">
@@ -170,6 +174,25 @@ export function TransferLine({
                 </span>
               ))}
             </span>
+
+            {/* Stiller Reload-Punkt, mittig auf der Leitung. Bewusst kaum sichtbar -
+                er sieht aus wie eine der Segmentmarkierungen und ist nur gedacht,
+                wenn die Verbindung haengt. Erst beim Draufzeigen wird er deutlicher */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation(); // nicht zusaetzlich die Richtung umdrehen
+                window.location.reload();
+              }}
+              aria-label="Seite neu laden"
+              title="Neu laden"
+              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center group"
+              style={{ background: "transparent", border: "none", padding: 0 }}
+            >
+              <span
+                className="h-1 w-1 rounded-full transition-all duration-200 opacity-40 group-hover:opacity-100 group-hover:h-2 group-hover:w-2 group-focus-visible:opacity-100"
+                style={{ background: color, boxShadow: `0 0 6px ${color}` }}
+              />
+            </button>
           </div>
 
           {endpoint(
@@ -190,6 +213,6 @@ export function TransferLine({
           <span className="text-cyan-300/25 normal-case tracking-normal">Klick: Richtung</span>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
