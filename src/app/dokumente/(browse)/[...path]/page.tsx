@@ -337,6 +337,15 @@ export default function AnyDepthFolderPage() {
   const handleColorDoc = async (id: string, color: FolderColor) => {
     await updateDoc(doc(db, "documents", id), { color });
   };
+  const handleDownloadDoc = async (d: DocItem) => {
+    if (!d.downloadURL) return;
+    try {
+      await downloadDocumentFile(d.downloadURL, d.name);
+    } catch (err) {
+      console.error("Download fehlgeschlagen:", err);
+      alert("Download fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.");
+    }
+  };
 
   // --- GEMEINSAMES GRID ---
   const items: GridItem[] = useMemo(() => {
@@ -521,7 +530,7 @@ export default function AnyDepthFolderPage() {
                     onColor={(c) => handleColorDoc(it.doc.id, c)}
                     onDownload={
                       it.doc.docKind === "file" && it.doc.downloadURL
-                        ? () => downloadDocumentFile(it.doc.downloadURL!, it.doc.name)
+                        ? () => handleDownloadDoc(it.doc)
                         : undefined
                     }
                   />
