@@ -442,6 +442,54 @@ export default function DokumenteRootPage() {
     }
   };
 
+  // ----- Verschieben per Drag&Drop auf ein Ordner-Icon (Desktop-Bonus) -----
+  const DND_MIME = "application/x-dokumente-item";
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+
+  const handleTileDragStart = (
+    e: React.DragEvent,
+    item: { kind: "folder" | "doc"; id: string; name: string }
+  ) => {
+    e.dataTransfer.setData(DND_MIME, JSON.stringify(item));
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const handleFolderDragOver = (e: React.DragEvent, folderId: string) => {
+    if (!e.dataTransfer.types.includes(DND_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverFolderId(folderId);
+  };
+  const handleFolderDragLeave = (folderId: string) => {
+    setDragOverFolderId((cur) => (cur === folderId ? null : cur));
+  };
+  const handleFolderDropTarget = async (e: React.DragEvent, targetFolder: Folder) => {
+    if (!e.dataTransfer.types.includes(DND_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverFolderId(null);
+    const raw = e.dataTransfer.getData(DND_MIME);
+    if (!raw || !uid) return;
+    const item = JSON.parse(raw) as { kind: "folder" | "doc"; id: string; name: string };
+    if (item.kind === "folder" && item.id === targetFolder.id) return;
+
+    const targetPathSlug = currentPathSlug ? `${currentPathSlug}/${targetFolder.slug}` : targetFolder.slug;
+    try {
+      if (item.kind === "doc") {
+        await moveDocument({ docId: item.id, newParentPathSlug: targetPathSlug });
+      } else {
+        const f = folders.find((x) => x.id === item.id);
+        if (f) await moveFolder({ uid, folder: f, oldParentPathSlug: currentPathSlug, newParentPathSlug: targetPathSlug });
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === "CANNOT_MOVE_INTO_OWN_SUBTREE") {
+        alert("Ein Ordner kann nicht in sich selbst oder einen eigenen Unterordner verschoben werden.");
+      } else {
+        console.error("Verschieben fehlgeschlagen:", err);
+        alert("Verschieben fehlgeschlagen.");
+      }
+    }
+  };
+
   // ----- Mehrfachauswahl -----
   const toggleFolderSelected = (id: string) => {
     setSelectedFolderIds((prev) => {
@@ -742,12 +790,25 @@ export default function DokumenteRootPage() {
             {items.map((it, idx) =>
               it.kind === "folder" ? (
                 <div key={`f-${it.folder.id}-${idx}`} className="flex flex-col items-stretch gap-2">
-                  <div className="relative">
+                  <div
+                    className="relative"
+                    draggable={!selectMode}
+                    onDragStart={(e) => handleTileDragStart(e, { kind: "folder", id: it.folder.id, name: it.folder.name })}
+                    onDragOver={(e) => handleFolderDragOver(e, it.folder.id)}
+                    onDragLeave={() => handleFolderDragLeave(it.folder.id)}
+                    onDrop={(e) => handleFolderDropTarget(e, it.folder)}
+                  >
                     <FolderTile
                       href={`/dokumente/${encodeURIComponent(it.folder.slug)}`}
                       name={it.folder.name}
                       color={it.folder.color ?? "blue"}
                     />
+                    {dragOverFolderId === it.folder.id && (
+                      <div
+                        className="absolute inset-0 z-30 rounded-xl border-2 border-dashed pointer-events-none"
+                        style={{ borderColor: "#22d3ee", boxShadow: "0 0 20px rgba(34,211,238,0.5)" }}
+                      />
+                    )}
                     {selectMode && (
                       <SelectionOverlay
                         selected={selectedFolderIds.has(it.folder.id)}
@@ -769,7 +830,11 @@ export default function DokumenteRootPage() {
                 </div>
               ) : (
                 <div key={`d-${it.doc.id}-${idx}`} className="flex flex-col items-stretch gap-2">
-                  <div className="relative">
+                  <div
+                    className="relative"
+                    draggable={!selectMode}
+                    onDragStart={(e) => handleTileDragStart(e, { kind: "doc", id: it.doc.id, name: it.doc.name })}
+                  >
                     <DocumentTile
                       doc={it.doc}
                       showPreview={showPreview}
