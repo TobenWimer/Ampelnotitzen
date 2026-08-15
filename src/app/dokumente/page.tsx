@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ListChecks } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
@@ -30,6 +30,8 @@ import { usePreviewPref } from "@/components/dokumente/usePreviewPref";
 import { ImageLightbox } from "@/components/dokumente/ImageLightbox";
 import { FolderPickerModal } from "@/components/dokumente/FolderPickerModal";
 import { moveDocument, moveFolder } from "@/components/dokumente/move";
+import { SelectionOverlay } from "@/components/dokumente/SelectionOverlay";
+import { hudColor, HUD_COLOR_ORDER } from "@/components/dokumente/hud";
 
 /* ======================
    Page
@@ -79,6 +81,13 @@ export default function DokumenteRootPage() {
 
   // UI: Verschieben
   const [movingItem, setMovingItem] = useState<{ kind: "folder" | "doc"; id: string; name: string } | null>(null);
+
+  // UI: Mehrfachauswahl
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
+  const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
+  const [showBulkPalette, setShowBulkPalette] = useState(false);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
 
   // ----- Laden: Unterordner auf Root -----
   useEffect(() => {
@@ -433,6 +442,75 @@ export default function DokumenteRootPage() {
     }
   };
 
+  // ----- Mehrfachauswahl -----
+  const toggleFolderSelected = (id: string) => {
+    setSelectedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleDocSelected = (id: string) => {
+    setSelectedDocIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const selectedCount = selectedFolderIds.size + selectedDocIds.size;
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedFolderIds(new Set());
+    setSelectedDocIds(new Set());
+    setShowBulkPalette(false);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedCount === 0) return;
+    const ok = confirm(`${selectedCount} Element(e) inkl. Inhalt wirklich löschen?`);
+    if (!ok) return;
+    for (const id of selectedFolderIds) {
+      const f = folders.find((x) => x.id === id);
+      if (f) await deleteFolderTree({ parentPathSlug: currentPathSlug, slug: f.slug, folderId: f.id });
+    }
+    for (const id of selectedDocIds) {
+      const d = docs.find((x) => x.id === id);
+      if (d) {
+        await deleteDocumentFile(d.storagePath);
+        await deleteDoc(doc(db, "documents", d.id));
+      }
+    }
+    exitSelectMode();
+  };
+
+  const handleBulkColor = async (color: FolderColor) => {
+    for (const id of selectedFolderIds) await updateDoc(doc(db, "folders", id), { color });
+    for (const id of selectedDocIds) await updateDoc(doc(db, "documents", id), { color });
+    setShowBulkPalette(false);
+  };
+
+  const handleBulkMoveSelect = async (targetPathSlug: string) => {
+    if (!uid) return;
+    for (const id of selectedFolderIds) {
+      const f = folders.find((x) => x.id === id);
+      if (!f) continue;
+      try {
+        await moveFolder({ uid, folder: f, oldParentPathSlug: currentPathSlug, newParentPathSlug: targetPathSlug });
+      } catch (err) {
+        if (err instanceof Error && err.message === "CANNOT_MOVE_INTO_OWN_SUBTREE") {
+          alert(`Ordner "${f.name}" kann nicht in sich selbst/einen eigenen Unterordner verschoben werden, wird übersprungen.`);
+        } else {
+          throw err;
+        }
+      }
+    }
+    for (const id of selectedDocIds) {
+      await moveDocument({ docId: id, newParentPathSlug: targetPathSlug });
+    }
+    setBulkMoveOpen(false);
+    exitSelectMode();
+  };
+
   // --- GEMEINSAMES GRID ---
   const items: GridItem[] = useMemo(() => {
     const F = folders.map((f) => ({
@@ -570,8 +648,69 @@ export default function DokumenteRootPage() {
               {showPreview ? <Eye size={14} className="inline -mt-0.5 mr-1.5" /> : <EyeOff size={14} className="inline -mt-0.5 mr-1.5" />}
               Vorschau
             </button>
+
+            {/* Mehrfachauswahl an/aus */}
+            <button
+              onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+              className={`dhud-btn dhud-toggle ${selectMode ? "dhud-toggle-on-alt" : ""}`}
+              disabled={!uid}
+              title="Mehrere Ordner/Dokumente gemeinsam bearbeiten"
+            >
+              <ListChecks size={14} className="inline -mt-0.5 mr-1.5" />
+              Auswählen
+            </button>
           </div>
         </div>
+
+        {/* Sammel-Aktionen */}
+        {selectMode && (
+          <div className="dhud-menu rounded-xl px-4 py-3 mb-4 flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-fuchsia-200 tracking-wide mr-1">
+              {selectedCount} ausgewählt
+            </span>
+            <button
+              onClick={() => setShowBulkPalette((v) => !v)}
+              className="dhud-btn dhud-btn-outline"
+              disabled={selectedCount === 0}
+            >
+              Farbe ändern
+            </button>
+            <button
+              onClick={() => setBulkMoveOpen(true)}
+              className="dhud-btn dhud-btn-outline"
+              disabled={selectedCount === 0}
+            >
+              Verschieben
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              className="dhud-btn dhud-btn-danger"
+              disabled={selectedCount === 0}
+            >
+              Löschen
+            </button>
+            <button onClick={exitSelectMode} className="dhud-btn dhud-btn-outline ml-auto">
+              Fertig
+            </button>
+
+            {showBulkPalette && (
+              <div className="w-full pt-2">
+                <div className="grid grid-cols-9 gap-1.5 max-w-xs">
+                  {HUD_COLOR_ORDER.map((c) => (
+                    <button
+                      key={c}
+                      title={c}
+                      aria-label={c}
+                      onClick={() => handleBulkColor(c)}
+                      className="h-7 w-7 rounded-full border border-white/20"
+                      style={{ background: hudColor(c), boxShadow: `0 0 6px ${hudColor(c)}` }}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Speicher-/Upload-/Download-Ring */}
         <div className="mb-8 -mt-4">
@@ -603,44 +742,64 @@ export default function DokumenteRootPage() {
             {items.map((it, idx) =>
               it.kind === "folder" ? (
                 <div key={`f-${it.folder.id}-${idx}`} className="flex flex-col items-stretch gap-2">
-                  <FolderTile
-                    href={`/dokumente/${encodeURIComponent(it.folder.slug)}`}
-                    name={it.folder.name}
-                    color={it.folder.color ?? "blue"}
-                  />
-                  <ItemNameMenu
-                    name={it.folder.name}
-                    color={it.folder.color ?? "blue"}
-                    onRename={() => handleRenameFolder(it.folder.id)}
-                    onDelete={() => handleDeleteFolder(it.folder)}
-                    onColor={(c) => handleColorFolder(it.folder.id, c)}
-                    onDownload={() => handleDownloadFolder(it.folder)}
-                    onMove={() => setMovingItem({ kind: "folder", id: it.folder.id, name: it.folder.name })}
-                  />
+                  <div className="relative">
+                    <FolderTile
+                      href={`/dokumente/${encodeURIComponent(it.folder.slug)}`}
+                      name={it.folder.name}
+                      color={it.folder.color ?? "blue"}
+                    />
+                    {selectMode && (
+                      <SelectionOverlay
+                        selected={selectedFolderIds.has(it.folder.id)}
+                        onToggle={() => toggleFolderSelected(it.folder.id)}
+                      />
+                    )}
+                  </div>
+                  {!selectMode && (
+                    <ItemNameMenu
+                      name={it.folder.name}
+                      color={it.folder.color ?? "blue"}
+                      onRename={() => handleRenameFolder(it.folder.id)}
+                      onDelete={() => handleDeleteFolder(it.folder)}
+                      onColor={(c) => handleColorFolder(it.folder.id, c)}
+                      onDownload={() => handleDownloadFolder(it.folder)}
+                      onMove={() => setMovingItem({ kind: "folder", id: it.folder.id, name: it.folder.name })}
+                    />
+                  )}
                 </div>
               ) : (
                 <div key={`d-${it.doc.id}-${idx}`} className="flex flex-col items-stretch gap-2">
-                  <DocumentTile
-                    doc={it.doc}
-                    showPreview={showPreview}
-                    onOpenPreview={() => {
-                      const idx = imageDocs.findIndex((x) => x.id === it.doc.id);
-                      if (idx >= 0) setLightboxIndex(idx);
-                    }}
-                  />
-                  <ItemNameMenu
-                    name={it.doc.name}
-                    color={it.doc.color ?? "blue"}
-                    onRename={() => handleRenameDoc(it.doc.id)}
-                    onDelete={() => handleDeleteDoc(it.doc)}
-                    onColor={(c) => handleColorDoc(it.doc.id, c)}
-                    onDownload={
-                      it.doc.docKind === "file" && it.doc.downloadURL
-                        ? () => handleDownloadDoc(it.doc)
-                        : undefined
-                    }
-                    onMove={() => setMovingItem({ kind: "doc", id: it.doc.id, name: it.doc.name })}
-                  />
+                  <div className="relative">
+                    <DocumentTile
+                      doc={it.doc}
+                      showPreview={showPreview}
+                      onOpenPreview={() => {
+                        const idx = imageDocs.findIndex((x) => x.id === it.doc.id);
+                        if (idx >= 0) setLightboxIndex(idx);
+                      }}
+                    />
+                    {selectMode && (
+                      <SelectionOverlay
+                        selected={selectedDocIds.has(it.doc.id)}
+                        onToggle={() => toggleDocSelected(it.doc.id)}
+                      />
+                    )}
+                  </div>
+                  {!selectMode && (
+                    <ItemNameMenu
+                      name={it.doc.name}
+                      color={it.doc.color ?? "blue"}
+                      onRename={() => handleRenameDoc(it.doc.id)}
+                      onDelete={() => handleDeleteDoc(it.doc)}
+                      onColor={(c) => handleColorDoc(it.doc.id, c)}
+                      onDownload={
+                        it.doc.docKind === "file" && it.doc.downloadURL
+                          ? () => handleDownloadDoc(it.doc)
+                          : undefined
+                      }
+                      onMove={() => setMovingItem({ kind: "doc", id: it.doc.id, name: it.doc.name })}
+                    />
+                  )}
                 </div>
               )
             )}
@@ -672,6 +831,15 @@ export default function DokumenteRootPage() {
           }
           onClose={() => setMovingItem(null)}
           onSelect={handleMoveSelect}
+        />
+      )}
+
+      {bulkMoveOpen && uid && (
+        <FolderPickerModal
+          uid={uid}
+          title={`${selectedCount} Element(e) verschieben nach…`}
+          onClose={() => setBulkMoveOpen(false)}
+          onSelect={handleBulkMoveSelect}
         />
       )}
 

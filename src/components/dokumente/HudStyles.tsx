@@ -180,6 +180,18 @@ export default function DokumenteHudStyles() {
         0%, 100% { box-shadow: 0 0 14px rgba(251,191,36,0.35), inset 0 0 10px rgba(251,191,36,0.06); }
         50% { box-shadow: 0 0 24px rgba(251,191,36,0.6), inset 0 0 16px rgba(251,191,36,0.14); }
       }
+      .dhud-toggle-on-alt {
+        border-color: rgba(232,121,249,0.8);
+        background: linear-gradient(135deg, rgba(232,121,249,0.28), rgba(232,121,249,0.06));
+        color: #fae8ff;
+        text-shadow: 0 0 8px rgba(232,121,249,0.7);
+        box-shadow: 0 0 16px rgba(232,121,249,0.4), inset 0 0 12px rgba(232,121,249,0.08);
+        animation: dhud-toggle-pulse-alt 2.4s ease-in-out infinite;
+      }
+      @keyframes dhud-toggle-pulse-alt {
+        0%, 100% { box-shadow: 0 0 14px rgba(232,121,249,0.35), inset 0 0 10px rgba(232,121,249,0.06); }
+        50% { box-shadow: 0 0 24px rgba(232,121,249,0.6), inset 0 0 16px rgba(232,121,249,0.14); }
+      }
       .dhud-input {
         background: rgba(0,0,0,0.4);
         border: 1px solid rgba(34,211,238,0.3);
