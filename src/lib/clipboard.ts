@@ -6,9 +6,21 @@ import { db, storage } from "@/lib/firebase";
 export const CLIPBOARD_TTL_MS = 3 * 60 * 1000;
 export const isClipboardExpired = (updatedAt: number) => Date.now() - updatedAt > CLIPBOARD_TTL_MS;
 
+export type ClipboardFile = {
+  fileName: string;
+  storagePath: string;
+  downloadURL: string;
+  mimeType: string;
+  sizeBytes: number;
+};
+
 export type ClipboardData = {
-  kind?: "text" | "file"; // fehlt bei alten Eintraegen -> als "text" behandeln
+  // "file" = Alt-Format mit genau einer Datei in den Wurzelfeldern,
+  // "files" = aktuelles Format mit files[]. Fehlt kind -> als "text" behandeln
+  kind?: "text" | "file" | "files";
   text?: string;
+  files?: ClipboardFile[];
+  // Legacy-Wurzelfelder (Eintraege von vor dem Mehrdatei-Umbau)
   fileName?: string;
   storagePath?: string;
   downloadURL?: string;
@@ -17,56 +29,95 @@ export type ClipboardData = {
   updatedAt: number;
 };
 
-// Laedt eine Datei/ein Bild in die (geraeteuebergreifende) Zwischenablage. Ersetzt den
-// kompletten bisherigen Inhalt (Text oder Datei), ein vorheriges Storage-Objekt wird
-// danach best-effort entfernt, da pro User nur ein Zwischenablage-Slot existiert
-export async function uploadClipboardFile({
-  file,
+// Vereinheitlicht altes Einzeldatei- und neues Mehrdatei-Format, damit die UI nur
+// einen Fall kennen muss. Alte Eintraege laufen nach 3 Minuten ohnehin aus, der
+// Fallback kostet aber nichts und vermeidet eine kaputte Anzeige in der Zwischenzeit
+export function clipboardFiles(data: ClipboardData | null): ClipboardFile[] {
+  if (!data) return [];
+  if (data.files?.length) return data.files;
+  if (data.kind === "file" && data.storagePath && data.downloadURL) {
+    return [
+      {
+        fileName: data.fileName ?? "Datei",
+        storagePath: data.storagePath,
+        downloadURL: data.downloadURL,
+        mimeType: data.mimeType ?? "application/octet-stream",
+        sizeBytes: data.sizeBytes ?? 0,
+      },
+    ];
+  }
+  return [];
+}
+
+export const isFileEntry = (data: ClipboardData | null) =>
+  !!data && (data.kind === "file" || data.kind === "files");
+
+// Laedt eine oder mehrere Dateien in die (geraeteuebergreifende) Ablage. Ersetzt den
+// kompletten bisherigen Inhalt (Text oder Dateien), vorherige Storage-Objekte werden
+// danach best-effort entfernt, da pro User nur ein Ablage-Slot existiert.
+// Fortschritt ist ueber alle Dateien kombiniert (gleich gewichtet pro Datei)
+export async function uploadClipboardFiles({
+  files,
   uid,
   onProgress,
 }: {
-  file: File;
+  files: File[];
   uid: string;
   onProgress?: (pct: number) => void;
 }) {
+  if (files.length === 0) return;
+
   const prevSnap = await getDoc(doc(db, "clipboard", uid));
-  const prevPath = prevSnap.exists() ? (prevSnap.data().storagePath as string | undefined) : undefined;
+  const prevPaths = prevSnap.exists() ? clipboardFiles(prevSnap.data() as ClipboardData).map((f) => f.storagePath) : [];
 
-  const storagePath = `clipboardUploads/${uid}/${Date.now()}-${file.name}`;
-  const storageRef = ref(storage, storagePath);
+  const uploaded: ClipboardFile[] = [];
+  const total = files.length;
 
-  await new Promise<void>((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, file);
-    task.on(
-      "state_changed",
-      (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-      reject,
-      () => resolve()
-    );
-  });
+  for (let i = 0; i < total; i++) {
+    const file = files[i];
+    const storagePath = `clipboardUploads/${uid}/${Date.now()}-${i}-${file.name}`;
+    const storageRef = ref(storage, storagePath);
 
-  const downloadURL = await getDownloadURL(storageRef);
+    await new Promise<void>((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, file);
+      task.on(
+        "state_changed",
+        (snap) => {
+          const filePct = snap.bytesTransferred / snap.totalBytes;
+          onProgress?.(Math.round(((i + filePct) / total) * 100));
+        },
+        reject,
+        () => resolve()
+      );
+    });
+
+    uploaded.push({
+      fileName: file.name,
+      storagePath,
+      downloadURL: await getDownloadURL(storageRef),
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+    });
+  }
 
   await setDoc(doc(db, "clipboard", uid), {
-    kind: "file",
-    fileName: file.name,
-    storagePath,
-    downloadURL,
-    mimeType: file.type || "application/octet-stream",
-    sizeBytes: file.size,
+    kind: "files",
+    files: uploaded,
     updatedAt: Date.now(),
   });
 
-  if (prevPath) {
-    deleteObject(ref(storage, prevPath)).catch(() => {});
+  for (const p of prevPaths) {
+    deleteObject(ref(storage, p)).catch(() => {});
   }
 }
 
-export async function deleteClipboardFile(storagePath?: string) {
-  if (!storagePath) return;
-  try {
-    await deleteObject(ref(storage, storagePath));
-  } catch {
-    // Datei evtl. schon weg oder Berechtigung fehlt - nicht kritisch
-  }
+// Best effort: alle Storage-Objekte eines Ablage-Eintrags entfernen
+export async function deleteClipboardFiles(files: ClipboardFile[]) {
+  await Promise.all(
+    files.map((f) =>
+      deleteObject(ref(storage, f.storagePath)).catch(() => {
+        // Datei evtl. schon weg oder Berechtigung fehlt - nicht kritisch
+      })
+    )
+  );
 }

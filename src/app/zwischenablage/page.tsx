@@ -3,12 +3,21 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { File as FileIcon } from "lucide-react";
+import { File as FileIcon, ChevronDown } from "lucide-react";
 import { doc, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
-import { CLIPBOARD_TTL_MS, isClipboardExpired, uploadClipboardFile, deleteClipboardFile, ClipboardData } from "@/lib/clipboard";
+import {
+  CLIPBOARD_TTL_MS,
+  isClipboardExpired,
+  uploadClipboardFiles,
+  deleteClipboardFiles,
+  clipboardFiles,
+  isFileEntry,
+  ClipboardData,
+} from "@/lib/clipboard";
 import { downloadFileFromUrl } from "@/lib/download";
+import { downloadAllFiles, downloadFilesAsZip, shareFiles, canShareFiles } from "@/lib/shareFiles";
 import { TransferLine } from "@/components/hud/TransferLine";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 
@@ -47,6 +56,22 @@ export default function ZwischenablagePage() {
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Dropdown mit den Datei-Aktionen (Einzeln/Zip/Teilen)
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onOutside = (e: Event) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("touchstart", onOutside);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("touchstart", onOutside);
+    };
+  }, [menuOpen]);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       if (!u) { router.push("/"); return; }
@@ -79,7 +104,7 @@ export default function ZwischenablagePage() {
     const t = setInterval(() => {
       forceTick((n) => n + 1);
       if (user && data && isClipboardExpired(data.updatedAt)) {
-        if (data.kind === "file") deleteClipboardFile(data.storagePath).catch(() => {});
+        deleteClipboardFiles(clipboardFiles(data)).catch(() => {});
         deleteDoc(doc(db, "clipboard", user.uid)).catch(() => {});
       }
     }, 5000);
@@ -88,6 +113,8 @@ export default function ZwischenablagePage() {
 
   const expired = data ? isClipboardExpired(data.updatedAt) : false;
   const visible = expired ? null : data;
+  const files = clipboardFiles(visible);
+  const hasFiles = isFileEntry(visible) && files.length > 0;
   const remainingMs = visible ? Math.max(0, CLIPBOARD_TTL_MS - (Date.now() - visible.updatedAt)) : 0;
   const remainingMin = visible ? Math.max(1, Math.ceil(remainingMs / 60000)) : 0;
   const remainingFraction = visible ? remainingMs / CLIPBOARD_TTL_MS : 0;
@@ -104,12 +131,12 @@ export default function ZwischenablagePage() {
     await setDoc(doc(db, "clipboard", user.uid), { kind: "text", text, updatedAt: Date.now() });
   }, [user]);
 
-  const uploadFile = useCallback(async (file: File) => {
-    if (!user) return;
+  const uploadFiles = useCallback(async (files: File[]) => {
+    if (!user || files.length === 0) return;
     setUploadPct(0);
     try {
-      await uploadClipboardFile({ file, uid: user.uid, onProgress: setUploadPct });
-      flash("Datei eingefügt.");
+      await uploadClipboardFiles({ files, uid: user.uid, onProgress: setUploadPct });
+      flash(files.length === 1 ? "Datei eingefügt." : `${files.length} Dateien eingefügt.`);
     } catch (err) {
       console.error("Clipboard-Upload fehlgeschlagen:", err);
       alert("Datei-Upload fehlgeschlagen.");
@@ -119,10 +146,10 @@ export default function ZwischenablagePage() {
   }, [user, flash]);
 
   const handleFileSelected = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (file) await uploadFile(file);
-  }, [uploadFile]);
+    await uploadFiles(files);
+  }, [uploadFiles]);
 
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
@@ -144,26 +171,28 @@ export default function ZwischenablagePage() {
     e.preventDefault();
     dragCounterRef.current = 0;
     setIsDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) await uploadFile(file);
+    await uploadFiles(Array.from(e.dataTransfer.files ?? []));
   };
 
   const handlePaste = useCallback(async () => {
     if (!user) return;
 
-    // Erst versuchen, ein Bild direkt aus der System-Zwischenablage zu lesen
+    // Erst versuchen, Bilder direkt aus der System-Zwischenablage zu lesen
     try {
       if (navigator.clipboard?.read) {
         const items = await navigator.clipboard.read();
+        const images: File[] = [];
         for (const item of items) {
           const imageType = item.types.find((t) => t.startsWith("image/"));
           if (imageType) {
             const blob = await item.getType(imageType);
             const ext = imageType.split("/")[1] || "png";
-            const file = new File([blob], `bild-${Date.now()}.${ext}`, { type: imageType });
-            await uploadFile(file);
-            return;
+            images.push(new File([blob], `bild-${Date.now()}-${images.length}.${ext}`, { type: imageType }));
           }
+        }
+        if (images.length > 0) {
+          await uploadFiles(images);
+          return;
         }
       }
     } catch {
@@ -179,7 +208,7 @@ export default function ZwischenablagePage() {
       // Kein Zugriff auf die Zwischenablage (Browser/Berechtigung) → manuelles Einfügen anbieten
       setManualMode(true);
     }
-  }, [user, uploadFile, save, flash]);
+  }, [user, uploadFiles, save, flash]);
 
   const handleManualSave = useCallback(async () => {
     if (!manualText.trim()) return;
@@ -199,26 +228,42 @@ export default function ZwischenablagePage() {
     }
   }, [visible, flash]);
 
-  const handleDownloadFile = useCallback(async () => {
-    if (!visible?.downloadURL || !visible.fileName) return;
-    setDownloadPct(0);
-    try {
-      await downloadFileFromUrl(visible.downloadURL, visible.fileName, setDownloadPct);
-    } catch (err) {
-      console.error("Download fehlgeschlagen:", err);
-      alert("Download fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.");
-    } finally {
-      setDownloadPct(null);
-    }
-  }, [visible]);
+  // Alle Datei-Aktionen laufen ueber denselben Rahmen: Fortschritt in den Ring/die
+  // Leitung fuettern und Fehler sichtbar machen statt still zu scheitern
+  const runFileAction = useCallback(
+    async (label: string, fn: (onProgress: (p: number) => void) => Promise<void>) => {
+      setDownloadPct(0);
+      setMenuOpen(false);
+      try {
+        await fn(setDownloadPct);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return; // Teilen abgebrochen
+        if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
+          alert("Dieses Gerät unterstützt das Teilen von Dateien nicht. Bitte herunterladen.");
+          return;
+        }
+        console.error(`${label} fehlgeschlagen:`, err);
+        alert(`${label} fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.`);
+      } finally {
+        setDownloadPct(null);
+      }
+    },
+    []
+  );
+
+  const handleDownloadSingle = useCallback(
+    (file: { downloadURL: string; fileName: string }) =>
+      runFileAction("Download", (onProgress) => downloadFileFromUrl(file.downloadURL, file.fileName, onProgress)),
+    [runFileAction]
+  );
 
   const handleDelete = useCallback(async () => {
     if (!user || !visible) return;
-    if (!confirm("Zwischenablage wirklich löschen?")) return;
-    if (visible.kind === "file") await deleteClipboardFile(visible.storagePath);
+    if (!confirm("Ablage wirklich löschen?")) return;
+    await deleteClipboardFiles(files);
     await deleteDoc(doc(db, "clipboard", user.uid));
     flash("Gelöscht.");
-  }, [user, visible, flash]);
+  }, [user, visible, files, flash]);
 
   if (loading) return (
     <div className="min-h-screen zwa-bg flex items-center justify-center">
@@ -228,8 +273,6 @@ export default function ZwischenablagePage() {
       <HudStyles />
     </div>
   );
-
-  const isImageFile = visible?.kind === "file" && !!visible.mimeType?.startsWith("image/");
 
   return (
     <div
@@ -274,8 +317,8 @@ export default function ZwischenablagePage() {
             active={!!visible}
             label={
               visible
-                ? visible.kind === "file"
-                  ? `Datei bereit · ${remainingMin}min`
+                ? hasFiles
+                  ? `${files.length} ${files.length === 1 ? "Datei" : "Dateien"} bereit · ${remainingMin}min`
                   : `Text bereit · ${remainingMin}min`
                 : "Leitung frei"
             }
@@ -301,20 +344,57 @@ export default function ZwischenablagePage() {
             Einfügen
           </button>
 
-          <input ref={fileInputRef} type="file" onChange={handleFileSelected} className="hidden" />
+          <input ref={fileInputRef} type="file" multiple onChange={handleFileSelected} className="hidden" />
           <button
             onClick={() => fileInputRef.current?.click()}
             className="zwa-btn zwa-btn-outline"
             disabled={!user || uploadPct !== null}
-            title="Auswählen oder Datei per Drag&Drop auf die Seite ziehen"
+            title="Auswählen oder Dateien per Drag&Drop auf die Seite ziehen"
           >
-            {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Datei hochladen"}
+            {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Hochladen"}
           </button>
 
-          {visible?.kind === "file" ? (
-            <button onClick={handleDownloadFile} className="zwa-btn zwa-btn-outline">
-              Herunterladen
-            </button>
+          {hasFiles ? (
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                className="zwa-btn zwa-btn-outline inline-flex items-center gap-1.5"
+                disabled={downloadPct !== null}
+              >
+                {downloadPct !== null ? `Läuft… ${downloadPct}%` : "Empfangen"}
+                <ChevronDown size={13} />
+              </button>
+
+              {menuOpen && (
+                <div role="menu" className="hud-menu absolute left-0 top-full mt-2 z-50 min-w-56 rounded-xl overflow-hidden">
+                  {files.length === 1 ? (
+                    <button className="hud-menu-item" onClick={() => handleDownloadSingle(files[0])}>
+                      Herunterladen
+                    </button>
+                  ) : (
+                    <button
+                      className="hud-menu-item"
+                      onClick={() => runFileAction("Download", (p) => downloadAllFiles(files, p))}
+                    >
+                      Alle einzeln herunterladen
+                    </button>
+                  )}
+
+                  <button
+                    className="hud-menu-item"
+                    onClick={() => runFileAction("Download", (p) => downloadFilesAsZip(files, "transfer", p))}
+                  >
+                    Als ZIP herunterladen
+                  </button>
+
+                  {canShareFiles() && (
+                    <button className="hud-menu-item" onClick={() => runFileAction("Teilen", (p) => shareFiles(files, p))}>
+                      Teilen{files.some((f) => f.mimeType.startsWith("image/")) ? " (z.B. in die Galerie)" : ""}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           ) : (
             <button onClick={handleCopy} disabled={!visible?.text} className="zwa-btn zwa-btn-outline">
               Kopieren
@@ -357,24 +437,36 @@ export default function ZwischenablagePage() {
         <div className="zwa-panel rounded-2xl p-5">
           {visible ? (
             <div className="relative z-10">
-              {visible.kind === "file" ? (
-                <div className="flex flex-col items-center gap-3 py-2">
-                  {isImageFile && visible.downloadURL ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={visible.downloadURL}
-                      alt={visible.fileName}
-                      className="max-h-64 rounded-lg object-contain border border-cyan-400/20"
-                    />
-                  ) : (
-                    <FileIcon size={44} className="text-cyan-300/60" strokeWidth={1.4} />
-                  )}
-                  <div className="text-sm text-cyan-50/90 text-center break-words max-w-full">
-                    {visible.fileName}
-                  </div>
-                  {typeof visible.sizeBytes === "number" && (
-                    <div className="text-[11px] text-cyan-300/40">{formatSize(visible.sizeBytes)}</div>
-                  )}
+              {hasFiles ? (
+                <div className={files.length === 1 ? "py-2" : "grid grid-cols-2 sm:grid-cols-3 gap-3 py-1"}>
+                  {files.map((f) => {
+                    const isImg = f.mimeType.startsWith("image/");
+                    return (
+                      <button
+                        key={f.storagePath}
+                        onClick={() => handleDownloadSingle(f)}
+                        title={`${f.fileName} herunterladen`}
+                        className="flex flex-col items-center gap-2 rounded-lg border border-cyan-400/15 bg-black/20 p-2 hover:border-cyan-400/50 transition min-w-0"
+                      >
+                        {isImg ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={f.downloadURL}
+                            alt={f.fileName}
+                            className={`rounded object-contain ${files.length === 1 ? "max-h-64" : "h-24 w-full object-cover"}`}
+                          />
+                        ) : (
+                          <div className={`flex items-center justify-center ${files.length === 1 ? "py-6" : "h-24"}`}>
+                            <FileIcon size={files.length === 1 ? 44 : 30} className="text-cyan-300/60" strokeWidth={1.4} />
+                          </div>
+                        )}
+                        <div className="text-[11px] text-cyan-50/90 text-center break-words [overflow-wrap:anywhere] w-full">
+                          {f.fileName}
+                        </div>
+                        <div className="text-[10px] text-cyan-300/40">{formatSize(f.sizeBytes)}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-sm text-cyan-50/90 whitespace-pre-wrap break-words leading-relaxed">
