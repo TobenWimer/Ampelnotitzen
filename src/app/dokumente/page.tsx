@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ListChecks } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, auth } from "@/lib/firebase";
@@ -38,6 +39,8 @@ import { hudColor, HUD_COLOR_ORDER } from "@/components/dokumente/hud";
    ====================== */
 
 export default function DokumenteRootPage() {
+  const router = useRouter();
+
   // Root hat keinen Pfad → parentPathSlug = "" (leer)
   const currentPathSlug = "";
 
@@ -46,11 +49,17 @@ export default function DokumenteRootPage() {
   const [authReady, setAuthReady] = useState(false);
   useEffect(() => {
     const off = auth.onAuthStateChanged((u) => {
-      setUid(u?.uid ?? null);
+      // Nicht (bzw. nur anonym) angemeldet -> zur Startseite, die Anmeldung und
+      // Zugangsschluessel abfragt. Gleiches Verhalten wie in den anderen Modulen
+      if (!u || u.isAnonymous) {
+        router.replace("/");
+        return;
+      }
+      setUid(u.uid);
       setAuthReady(true);
     });
     return () => off();
-  }, []);
+  }, [router]);
 
   // ----- State -----
   const [folders, setFolders] = useState<Folder[]>([]);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, ListChecks } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -40,6 +40,7 @@ import { hudColor, HUD_COLOR_ORDER } from "@/components/dokumente/hud";
 
 export default function AnyDepthFolderPage() {
   // ----- Pfad (Slugs) -----
+  const router = useRouter();
   const params = useParams() as { path?: string[] };
   const segs: string[] = Array.isArray(params?.path) ? params.path : [];
   const decodedSegs = useMemo(() => segs.map(decodeURIComponent), [segs]);
@@ -55,11 +56,17 @@ export default function AnyDepthFolderPage() {
   const [authReady, setAuthReady] = useState(false);
   useEffect(() => {
     const off = auth.onAuthStateChanged((u) => {
-      setUid(u?.uid ?? null);
+      // Nicht (bzw. nur anonym) angemeldet -> zur Startseite, die Anmeldung und
+      // Zugangsschluessel abfragt. Gleiches Verhalten wie in den anderen Modulen
+      if (!u || u.isAnonymous) {
+        router.replace("/");
+        return;
+      }
+      setUid(u.uid);
       setAuthReady(true);
     });
     return () => off();
-  }, []);
+  }, [router]);
 
   // ----- State -----
   const [folders, setFolders] = useState<Folder[]>([]);

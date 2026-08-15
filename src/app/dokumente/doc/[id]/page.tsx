@@ -20,7 +20,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
@@ -171,6 +171,7 @@ function strokeHit(stroke: Stroke, p: StrokePoint, radius: number) {
    ========================= */
 
 export default function DocumentEditorPage() {
+  const router = useRouter();
   const params = useParams() as { id?: string };
   const docId = params?.id ?? "";
 
@@ -179,11 +180,17 @@ export default function DocumentEditorPage() {
   const [authReady, setAuthReady] = useState(false);
   useEffect(() => {
     const off = auth.onAuthStateChanged((u) => {
-      setUid(u?.uid ?? null);
+      // Nicht (bzw. nur anonym) angemeldet -> zur Startseite, die Anmeldung und
+      // Zugangsschluessel abfragt. Gleiches Verhalten wie in den anderen Modulen
+      if (!u || u.isAnonymous) {
+        router.replace("/");
+        return;
+      }
+      setUid(u.uid);
       setAuthReady(true);
     });
     return () => off();
-  }, []);
+  }, [router]);
 
   // Globale (nutzerweite) Editor-Prefs
   const {
