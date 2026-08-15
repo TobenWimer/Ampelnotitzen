@@ -121,20 +121,23 @@ export default function StorageRing({
         </div>
       </div>
 
-      {/* Zwei Pegel-Saeulen: links Speicherbelegung (statisch), rechts Live-Aktivitaet */}
+      {/* Pegel-Saeulen: Speicherbelegung, Live-Aktivitaet und Verbindungsstatus */}
       <div className="flex items-end gap-1.5 shrink-0">
         <LevelBar
           fillPct={storagePct}
           color="#c084fc"
-          sweeping={false}
+          sweeping
+          sweepSec={7}
           label="MEM"
         />
         <LevelBar
           fillPct={activity ? Math.min(100, activity.pct) : 0}
           color={activity?.type === "download" ? "#4ade80" : "#22d3ee"}
           sweeping={!!activity}
+          sweepSec={2.4}
           label="I/O"
         />
+        <LevelBar fillPct={100} color="#22d3ee" sweeping sweepSec={11} label="NET" />
       </div>
 
       <div className="text-[10px] leading-tight tracking-wide uppercase">
@@ -155,11 +158,13 @@ function LevelBar({
   fillPct,
   color,
   sweeping,
+  sweepSec,
   label,
 }: {
   fillPct: number;
   color: string;
   sweeping: boolean;
+  sweepSec: number;
   label: string;
 }) {
   return (
@@ -182,7 +187,7 @@ function LevelBar({
             style={{
               background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
               boxShadow: `0 0 8px 2px ${color}`,
-              animation: "dhud-vscan 2.4s ease-in-out infinite",
+              animation: `dhud-vscan ${sweepSec}s ease-in-out infinite`,
             }}
           />
         )}

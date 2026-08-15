@@ -194,6 +194,18 @@ export default function HudGlobalStyles() {
       @keyframes hud-dash-flow {
         to { stroke-dashoffset: -100; }
       }
+      /* sehr langsamer Ruhepuls, wenn eine Leitung/Anzeige gerade nichts zu tun hat */
+      @keyframes hud-idle-breath {
+        0%, 100% { opacity: 0.25; }
+        50% { opacity: 0.7; }
+      }
+      /* traeger Standby-Schimmer, laeuft langsam von links nach rechts */
+      @keyframes hud-idle-drift {
+        0% { left: -35%; opacity: 0; }
+        20% { opacity: 0.5; }
+        80% { opacity: 0.5; }
+        100% { left: 100%; opacity: 0; }
+      }
     `}</style>
   );
 }

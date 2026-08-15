@@ -42,6 +42,7 @@ export function TransferLine({
                 borderColor: `${color}66`,
                 background: `${color}12`,
                 boxShadow: active ? `0 0 12px ${color}55` : "none",
+                animation: active ? "none" : "hud-idle-breath 7s ease-in-out infinite",
               }}
             >
               {reverse ? <Monitor size={16} style={{ color }} /> : <Smartphone size={16} style={{ color }} />}
@@ -55,7 +56,10 @@ export function TransferLine({
           <div className="relative flex-1 h-9 flex items-center">
             <div
               className="absolute left-0 right-0 h-px"
-              style={{ background: `linear-gradient(90deg, ${color}22, ${color}88, ${color}22)` }}
+              style={{
+                background: `linear-gradient(90deg, ${color}22, ${color}88, ${color}22)`,
+                animation: active ? "none" : "hud-idle-breath 7s ease-in-out infinite",
+              }}
             />
             {/* Fuellstand = verbleibende Gueltigkeit des Inhalts */}
             <div
@@ -81,6 +85,17 @@ export function TransferLine({
                   }}
                 />
               ))}
+
+            {/* Standby: sehr langsamer Schimmer, damit die Leitung auch leer "atmet" */}
+            {!active && (
+              <span
+                className="absolute h-[2px] w-[35%] rounded-full pointer-events-none"
+                style={{
+                  background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
+                  animation: "hud-idle-drift 9s ease-in-out infinite",
+                }}
+              />
+            )}
             {/* Segmentmarkierungen */}
             {[...Array(9)].map((_, i) => (
               <span
@@ -99,6 +114,7 @@ export function TransferLine({
                 borderColor: `${color}66`,
                 background: `${color}12`,
                 boxShadow: active ? `0 0 12px ${color}55` : "none",
+                animation: active ? "none" : "hud-idle-breath 7s ease-in-out infinite",
               }}
             >
               {reverse ? <Smartphone size={16} style={{ color }} /> : <Monitor size={16} style={{ color }} />}
