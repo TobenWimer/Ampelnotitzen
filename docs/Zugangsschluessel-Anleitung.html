@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OneStepBehind Zugangsschlüssel</title>
+<style>
+  :root {
+    --bg: #F1F4F3;
+    --surface: #FFFFFF;
+    --surface-2: #E9EEEC;
+    --ink: #16201F;
+    --ink-2: #55635F;
+    --ink-3: #7E8C88;
+    --line: #D6DEDB;
+    --line-2: #C2CDC9;
+    --accent: #146266;
+    --accent-soft: #DCECEC;
+    --danger: #9E3226;
+    --danger-soft: #F6E3E0;
+    --code-bg: #12211F;
+    --code-ink: #DCE8E4;
+    --code-dim: #7B928C;
+    --radius: 10px;
+    --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+    --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E1514;
+      --surface: #161F1E;
+      --surface-2: #1D2827;
+      --ink: #E7EDEB;
+      --ink-2: #9CAAA6;
+      --ink-3: #788783;
+      --line: #253230;
+      --line-2: #31413E;
+      --accent: #56B4B8;
+      --accent-soft: #14302F;
+      --danger: #E08375;
+      --danger-soft: #33201D;
+      --code-bg: #0A1211;
+      --code-ink: #DCE8E4;
+      --code-dim: #6E827D;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0E1514;
+    --surface: #161F1E;
+    --surface-2: #1D2827;
+    --ink: #E7EDEB;
+    --ink-2: #9CAAA6;
+    --ink-3: #788783;
+    --line: #253230;
+    --line-2: #31413E;
+    --accent: #56B4B8;
+    --accent-soft: #14302F;
+    --danger: #E08375;
+    --danger-soft: #33201D;
+    --code-bg: #0A1211;
+    --code-ink: #DCE8E4;
+    --code-dim: #6E827D;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 20px 96px;
+  }
+
+  .page { max-width: 840px; margin: 0 auto; }
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 64px 0 32px;
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .masthead h1 {
+    font-family: var(--font-display);
+    font-size: 40px;
+    font-weight: 400;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .masthead p { margin: 0; max-width: 60ch; color: var(--ink-2); }
+
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-top: 10px;
+  }
+  .fact { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 3px; }
+  .fact dt { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+  .fact dd { margin: 0; font-family: var(--font-mono); font-size: 13px; word-break: break-all; }
+
+  section { padding-top: 56px; }
+  .sec-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 28px; }
+  .sec-head h2 {
+    font-family: var(--font-display);
+    font-size: 27px;
+    font-weight: 400;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .sec-head p { margin: 0; color: var(--ink-2); max-width: 62ch; }
+
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+  .num {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .step-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .step-body h3 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.005em; }
+  .step-body p { margin: 0; color: var(--ink-2); }
+  .step-body p strong { color: var(--ink); font-weight: 600; }
+
+  .cmd {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+  }
+  .cmd pre { margin: 0; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.6; }
+  .cmd .prompt { color: var(--code-dim); user-select: none; }
+  .cmd .out { color: var(--code-dim); }
+
+  .path {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 11px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--surface-2);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  .fields { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+  .fields li { display: grid; grid-template-columns: 118px 1fr; gap: 12px; align-items: baseline; font-size: 15px; }
+  .fields .k { font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); }
+  .fields .v { font-family: var(--font-mono); font-size: 13px; word-break: break-all; }
+
+  .cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .case {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .case-danger { border-color: var(--danger); }
+  .chip {
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+  .case h3 { font-size: 17px; font-weight: 600; margin: 0; }
+  .case p { margin: 0; color: var(--ink-2); font-size: 15px; }
+  .case ol { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 15px; display: flex; flex-direction: column; gap: 5px; }
+
+  .compare {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .compare > div { background: var(--surface); padding: 20px 22px; display: flex; flex-direction: column; gap: 8px; }
+  .compare h3 { margin: 0; font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--accent); }
+  .compare p { margin: 0; color: var(--ink-2); font-size: 15px; }
+
+  .note {
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .note h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .note p { margin: 0; color: var(--ink-2); font-size: 15px; }
+
+  .foot {
+    margin-top: 64px; padding-top: 24px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-3); font-size: 14px;
+  }
+
+  a { color: var(--accent); }
+  a:focus-visible, .cmd:focus-visible, .path:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 560px) {
+    .masthead { padding-top: 44px; }
+    .masthead h1 { font-size: 31px; }
+    .step { grid-template-columns: 1fr; gap: 12px; }
+    .fields li { grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <span class="eyebrow">OneStepBehind · Betrieb</span>
+    <h1>Zugangsschlüssel verwalten</h1>
+    <p>Wer die App nutzen darf, entscheidest du über Zugangsschlüssel. Diese Seite zeigt, wie du jemanden aufnimmst und wie du den Zugang wieder entziehst.</p>
+    <dl class="facts">
+      <div class="fact">
+        <dt>Projektordner</dt>
+        <dd>C:\Dateien_Timon\Projekt Programmieren\notizen-app</dd>
+      </div>
+      <div class="fact">
+        <dt>Firebase-Projekt</dt>
+        <dd>Ampelnotitzen</dd>
+      </div>
+      <div class="fact">
+        <dt>Sammlungen</dt>
+        <dd>accessKeys · allowlist</dd>
+      </div>
+    </dl>
+  </header>
+
+  <section>
+    <div class="sec-head">
+      <h2>Jemanden aufnehmen</h2>
+      <p>Vier Schritte. Der Schlüssel entsteht bei dir im Terminal, sein Fingerabdruck kommt in die Datenbank, den Schlüssel selbst bekommt die Person.</p>
+    </div>
+
+    <ol class="steps">
+
+      <li class="step">
+        <span class="num">1</span>
+        <div class="step-body">
+          <h3>Schlüssel erzeugen</h3>
+          <p>Terminal im Projektordner öffnen: im Explorer in den Ordner gehen, oben in die Adressleiste <code>cmd</code> tippen, Enter. Dann:</p>
+          <div class="cmd" tabindex="0">
+<pre><span class="prompt">&gt;</span> node scripts/gen-access-key.mjs</pre>
+          </div>
+          <p>Willst du den Schlüssel selbst bestimmen, häng ihn an: <code>node scripts/gen-access-key.mjs "MeinSchluessel"</code></p>
+        </div>
+      </li>
+
+      <li class="step">
+        <span class="num">2</span>
+        <div class="step-body">
+          <h3>Ausgabe lesen</h3>
+          <p>Du bekommst zwei Zeilen. Sie gehören an <strong>verschiedene Orte</strong> — das ist der ganze Trick dahinter.</p>
+          <div class="cmd" tabindex="0">
+<pre><span class="out">  Schluessel (weitergeben):</span>
+  OSB-a1B2c3D4e5F6g7H8
+
+<span class="out">  Dokument-ID in accessKeys (in Firestore anlegen):</span>
+  4f9c2a…  (64 Zeichen)</pre>
+          </div>
+          <p>Der <strong>Schlüssel</strong> geht an die Person. Der <strong>Hash</strong> geht in die Datenbank. Aus dem Hash lässt sich der Schlüssel nicht zurückrechnen — deshalb liegt in der Datenbank nie der Schlüssel selbst.</p>
+        </div>
+      </li>
+
+      <li class="step">
+        <span class="num">3</span>
+        <div class="step-body">
+          <h3>Hash in Firestore eintragen</h3>
+          <p>Firebase Console öffnen, dann diesem Pfad folgen:</p>
+          <div class="path" tabindex="0">Firestore Database › Daten › accessKeys › Dokument hinzufügen</div>
+          <p>Im Dialog ausfüllen:</p>
+          <ul class="fields">
+            <li><span class="k">Dokument-ID</span><span class="v">der 64-stellige Hash aus Schritt 2</span></li>
+            <li><span class="k">Feld</span><span class="v">label</span></li>
+            <li><span class="k">Typ</span><span class="v">string</span></li>
+            <li><span class="k">Wert</span><span class="v">Name der Person, z.B. Max</span></li>
+          </ul>
+          <p>Nicht auf „Automatisch generierte ID“ klicken — die ID <strong>muss</strong> der Hash sein. Das Feld <code>label</code> ist nur für deine Übersicht, damit du später weisst, welcher Schlüssel zu wem gehört.</p>
+        </div>
+      </li>
+
+      <li class="step">
+        <span class="num">4</span>
+        <div class="step-body">
+          <h3>Schlüssel weitergeben</h3>
+          <p>Die Person meldet sich mit Google an, landet auf „Zugang gesperrt“, gibt den Schlüssel ein und ist drin.</p>
+          <p>Dabei entsteht automatisch ein Eintrag in <code>allowlist</code>. Den legst du nie selbst an — er ist der Nachweis, dass dieses Konto freigeschaltet ist.</p>
+        </div>
+      </li>
+
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Zugang entziehen</h2>
+      <p>Hier gibt es zwei verschiedene Fälle. Sie sehen ähnlich aus, wirken aber völlig unterschiedlich — das ist die häufigste Verwechslung.</p>
+    </div>
+
+    <div class="cases">
+
+      <div class="case case-danger">
+        <span class="chip">Fall 1</span>
+        <h3>Schlüssel unbrauchbar machen</h3>
+        <p>Der Schlüssel ist irgendwo gelandet, wo er nicht hingehört. Niemand soll sich damit noch freischalten können.</p>
+        <ol>
+          <li>Firestore Database › Daten › <code>accessKeys</code></li>
+          <li>Das Dokument mit dem passenden <code>label</code> auswählen</li>
+          <li>Rechts oben über das Dreipunkt-Menü löschen</li>
+        </ol>
+        <p><strong>Wirkung:</strong> keine neuen Freischaltungen mehr mit diesem Schlüssel. Wer damit bereits drin ist, <strong>bleibt drin</strong>. Andere Schlüssel sind nicht betroffen.</p>
+      </div>
+
+      <div class="case case-danger">
+        <span class="chip">Fall 2</span>
+        <h3>Person hinauswerfen</h3>
+        <p>Eine bestimmte Person soll die App nicht mehr nutzen können — unabhängig davon, welchen Schlüssel sie verwendet hat.</p>
+        <ol>
+          <li>Authentication öffnen, die Person suchen, ihre <code>User UID</code> kopieren</li>
+          <li>Firestore Database › Daten › <code>allowlist</code></li>
+          <li>Das Dokument mit genau dieser UID löschen</li>
+        </ol>
+        <p><strong>Wirkung:</strong> ab dem nächsten Laden landet sie wieder auf „Zugang gesperrt“. Kennt sie noch einen gültigen Schlüssel, kann sie sich erneut freischalten — dann zusätzlich Fall 1 ausführen.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Die beiden Sammlungen</h2>
+      <p>Beide stehen in Firestore nebeneinander und werden leicht verwechselt. Der Unterschied in einem Satz:</p>
+    </div>
+
+    <div class="compare">
+      <div>
+        <h3>accessKeys</h3>
+        <p>Die gültigen Schlüssel — genauer: ihre Fingerabdrücke. <strong>Du</strong> legst hier Dokumente an. Steuert, <em>womit</em> man sich freischalten kann.</p>
+      </div>
+      <div>
+        <h3>allowlist</h3>
+        <p>Die bereits freigeschalteten Konten, ein Dokument je Person. Entsteht <strong>automatisch</strong>. Steuert, <em>wer</em> gerade Zugang hat.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Gut zu wissen</h2>
+    </div>
+
+    <div class="note">
+      <h3>Pro Person ein eigener Schlüssel</h3>
+      <p>Dann kannst du bei einem Leck gezielt einen einzelnen kippen, statt allen neue geben zu müssen. Das Feld <code>label</code> sagt dir, welcher zu wem gehört.</p>
+    </div>
+
+    <div class="note" style="margin-top:14px">
+      <h3>Der Schlüssel steht nicht in dieser Datei</h3>
+      <p>Absichtlich — dieses Dokument liegt im Web. Deinen eigenen Schlüssel hast du im Chat bekommen; bewahre ihn dort auf, wo du auch Passwörter aufbewahrst.</p>
+    </div>
+
+    <div class="note" style="margin-top:14px">
+      <h3>Du kannst dich nicht versehentlich aussperren</h3>
+      <p>Dein Eintrag in <code>allowlist</code> bleibt bestehen, auch wenn du in <code>accessKeys</code> aufräumst. Nur das Löschen deines eigenen <code>allowlist</code>-Dokuments würde dich aussperren — dann brauchst du einen gültigen Schlüssel, um wieder hineinzukommen.</p>
+    </div>
+  </section>
+
+  <p class="foot">Erstellt am 15. August 2026 · Änderungen am Ablauf gehören auch in die Projektnotiz im Vault.</p>
+
+</div>
+</body>
+</html>
