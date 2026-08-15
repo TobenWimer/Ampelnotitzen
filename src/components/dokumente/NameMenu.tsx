@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { hudColor, HUD_COLOR_ORDER } from "./hud";
 import type { FolderColor } from "./types";
 
@@ -12,6 +12,7 @@ export function ItemNameMenu({
   onDelete,
   onColor,
   onDownload,
+  onMove,
 }: {
   name: string;
   color?: FolderColor;
@@ -19,12 +20,30 @@ export function ItemNameMenu({
   onDelete: () => void;
   onColor: (c: FolderColor) => void;
   onDownload?: () => void;
+  onMove?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onOutside = (e: Event) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setShowPalette(false);
+      }
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("touchstart", onOutside);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("touchstart", onOutside);
+    };
+  }, [open]);
 
   return (
-    <div className="relative flex justify-center">
+    <div ref={rootRef} className="relative flex justify-center">
       <button onClick={() => setOpen((v) => !v)} className="dhud-name-btn" title={name}>
         {name}
       </button>
@@ -46,6 +65,15 @@ export function ItemNameMenu({
           >
             Umbenennen
           </button>
+
+          {onMove && (
+            <button
+              onClick={() => { setOpen(false); onMove(); }}
+              className="dhud-menu-item"
+            >
+              Verschieben
+            </button>
+          )}
 
           <button
             onClick={() => setShowPalette((v) => !v)}

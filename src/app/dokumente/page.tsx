@@ -28,6 +28,8 @@ import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
 import { usePreviewPref } from "@/components/dokumente/usePreviewPref";
 import { ImageLightbox } from "@/components/dokumente/ImageLightbox";
+import { FolderPickerModal } from "@/components/dokumente/FolderPickerModal";
+import { moveDocument, moveFolder } from "@/components/dokumente/move";
 
 /* ======================
    Page
@@ -74,6 +76,9 @@ export default function DokumenteRootPage() {
 
   // UI: Bilder-Lightbox (Durchblaettern)
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  // UI: Verschieben
+  const [movingItem, setMovingItem] = useState<{ kind: "folder" | "doc"; id: string; name: string } | null>(null);
 
   // ----- Laden: Unterordner auf Root -----
   useEffect(() => {
@@ -405,6 +410,29 @@ export default function DokumenteRootPage() {
     }
   };
 
+  // ----- Verschieben (Ordner + Dokument gemeinsam) -----
+  const handleMoveSelect = async (targetPathSlug: string) => {
+    if (!uid || !movingItem) return;
+    try {
+      if (movingItem.kind === "doc") {
+        await moveDocument({ docId: movingItem.id, newParentPathSlug: targetPathSlug });
+      } else {
+        const f = folders.find((x) => x.id === movingItem.id);
+        if (f) {
+          await moveFolder({ uid, folder: f, oldParentPathSlug: currentPathSlug, newParentPathSlug: targetPathSlug });
+        }
+      }
+      setMovingItem(null);
+    } catch (err) {
+      if (err instanceof Error && err.message === "CANNOT_MOVE_INTO_OWN_SUBTREE") {
+        alert("Ein Ordner kann nicht in sich selbst oder einen eigenen Unterordner verschoben werden.");
+      } else {
+        console.error("Verschieben fehlgeschlagen:", err);
+        alert("Verschieben fehlgeschlagen.");
+      }
+    }
+  };
+
   // --- GEMEINSAMES GRID ---
   const items: GridItem[] = useMemo(() => {
     const F = folders.map((f) => ({
@@ -587,6 +615,7 @@ export default function DokumenteRootPage() {
                     onDelete={() => handleDeleteFolder(it.folder)}
                     onColor={(c) => handleColorFolder(it.folder.id, c)}
                     onDownload={() => handleDownloadFolder(it.folder)}
+                    onMove={() => setMovingItem({ kind: "folder", id: it.folder.id, name: it.folder.name })}
                   />
                 </div>
               ) : (
@@ -610,6 +639,7 @@ export default function DokumenteRootPage() {
                         ? () => handleDownloadDoc(it.doc)
                         : undefined
                     }
+                    onMove={() => setMovingItem({ kind: "doc", id: it.doc.id, name: it.doc.name })}
                   />
                 </div>
               )
@@ -624,6 +654,24 @@ export default function DokumenteRootPage() {
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onIndexChange={setLightboxIndex}
+        />
+      )}
+
+      {movingItem && uid && (
+        <FolderPickerModal
+          uid={uid}
+          title={`"${movingItem.name}" verschieben nach…`}
+          excludeFullPathSlug={
+            movingItem.kind === "folder"
+              ? (() => {
+                  const f = folders.find((x) => x.id === movingItem.id);
+                  if (!f) return undefined;
+                  return currentPathSlug ? `${currentPathSlug}/${f.slug}` : f.slug;
+                })()
+              : undefined
+          }
+          onClose={() => setMovingItem(null)}
+          onSelect={handleMoveSelect}
         />
       )}
 
