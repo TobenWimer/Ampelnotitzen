@@ -41,6 +41,12 @@ const modules: Module[] = [
     desc: "Auf einem Gerät einfügen, auf jedem anderen sofort kopierbar.",
     href: "/zwischenablage",
   },
+  {
+    key: "dokumente",
+    title: "Dokumente",
+    desc: "Ordner und Dokumente organisieren.",
+    href: "/dokumente",
+  },
 ];
 
 function Card({ m }: { m: Module }) {
