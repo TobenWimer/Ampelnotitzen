@@ -7,7 +7,7 @@ import { auth, db, signOut } from "@/lib/firebase";
 import { useEffect, useState } from "react";
 import { Settings, ClipboardCopy, Check } from "lucide-react";
 import { doc, onSnapshot } from "firebase/firestore";
-import { isClipboardExpired } from "@/lib/clipboard";
+import { isClipboardExpired, ClipboardData } from "@/lib/clipboard";
 
 type Module = {
   key: string;
@@ -81,7 +81,7 @@ function Card({ m }: { m: Module }) {
 // Zeigt einen Kopieren-Button im Header, sobald in der Zwischenablage etwas (noch nicht abgelaufenes) liegt
 function ClipboardQuickCopy() {
   const [uid, setUid] = useState<string | null>(null);
-  const [entry, setEntry] = useState<{ text: string; updatedAt: number } | null>(null);
+  const [entry, setEntry] = useState<ClipboardData | null>(null);
   const [copied, setCopied] = useState(false);
   const [, forceTick] = useState(0);
 
@@ -95,7 +95,7 @@ function ClipboardQuickCopy() {
     const ref = doc(db, "clipboard", uid);
     const off = onSnapshot(
       ref,
-      (snap) => setEntry(snap.exists() ? (snap.data() as { text: string; updatedAt: number }) : null),
+      (snap) => setEntry(snap.exists() ? (snap.data() as ClipboardData) : null),
       () => setEntry(null)
     );
     return off;
@@ -107,7 +107,8 @@ function ClipboardQuickCopy() {
     return () => clearInterval(t);
   }, []);
 
-  if (!entry || isClipboardExpired(entry.updatedAt)) return null;
+  // Quick-Copy im Header bleibt bewusst auf Text beschraenkt (Bilder/Dateien -> /zwischenablage)
+  if (!entry || !entry.text || isClipboardExpired(entry.updatedAt)) return null;
   const text = entry.text;
 
   const handleCopy = async () => {

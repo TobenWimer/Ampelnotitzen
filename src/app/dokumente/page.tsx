@@ -529,7 +529,7 @@ export default function DokumenteRootPage() {
               disabled={!uid || uploadPct !== null}
               title="Auswaehlen oder Dateien per Drag&Drop irgendwo auf die Seite ziehen"
             >
-              {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Datei(en) hochladen"}
+              {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Hochladen"}
             </button>
 
             {/* Bild-Vorschau an/aus */}
