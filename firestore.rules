@@ -26,15 +26,21 @@ service cloud.firestore {
     /* =========================
        Zugangskontrolle
 
-       config/access enthaelt den SHA-256-Hash des Zugangsschluessels. Fuer Clients
-       ist das Dokument komplett gesperrt - get() in den Regeln umgeht Leseregeln,
-       deshalb kommt die Pruefung unten trotzdem an den Sollwert heran.
+       accessKeys/{keyHash}: ein Dokument je gueltigem Zugangsschluessel, die
+       Dokument-ID ist der SHA-256-Hash des Schluessels. Mehrere Schluessel sind
+       damit moeglich (z.B. einer pro Person). Einen Schluessel widerrufen heisst
+       einfach: sein Dokument loeschen - die anderen bleiben gueltig, und bereits
+       freigeschaltete Konten bleiben freigeschaltet.
 
-       allowlist/{uid}: wer den passenden Hash mitschickt, traegt sich selbst ein.
+       Fuer Clients ist die Sammlung komplett gesperrt, es laesst sich also weder
+       lesen noch pruefen, welche Hashes existieren. exists() in den Regeln umgeht
+       Leseregeln, die Pruefung unten funktioniert trotzdem.
+
+       allowlist/{uid}: wer einen passenden Hash mitschickt, traegt sich selbst ein.
        Aendern und Loeschen ist niemandem erlaubt - Entfernen geht nur ueber die
        Firebase Console.
        ========================= */
-    match /config/{docId} {
+    match /accessKeys/{keyHash} {
       allow read, write: if false;
     }
 
@@ -45,8 +51,7 @@ service cloud.firestore {
                     && authUid() == uid
                     && request.resource.data.keys().hasOnly(['keyHash','createdAt'])
                     && request.resource.data.keyHash is string
-                    && request.resource.data.keyHash
-                       == get(/databases/$(database)/documents/config/access).data.keyHash;
+                    && exists(/databases/$(database)/documents/accessKeys/$(request.resource.data.keyHash));
       allow update, delete: if false;
     }
 
