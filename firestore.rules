@@ -169,5 +169,27 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && authUid() == userId;
     }
 
+    /* =========================
+       Intertransfer-Gates (oeffentliche Abholpunkte auf Zeit)
+
+       Empfaenger sind bewusst NICHT angemeldet: die zufaellige Gate-ID im Link
+       ist der Zugangsschutz. Deshalb:
+       - get: jeder mit dem Link, solange das Gate nicht abgelaufen ist. Der
+         Besitzer darf auch abgelaufene lesen, um sie aufraeumen zu koennen.
+       - list: nur der Besitzer und nur die eigenen. Damit kann niemand die
+         Sammlung durchblaettern und fremde Gates einsammeln.
+       ========================= */
+    match /gates/{gateId} {
+      allow get: if (resource.data.expiresAt > request.time.toMillis())
+                 || (isSignedIn() && authUid() == resource.data.ownerUid);
+      allow list: if isSignedIn() && authUid() == resource.data.ownerUid;
+      allow create: if isSignedIn()
+                    && authUid() == request.resource.data.ownerUid
+                    && request.resource.data.keys().hasOnly([
+                      'ownerUid','files','createdAt','expiresAt','note'
+                    ]);
+      allow update, delete: if isSignedIn() && authUid() == resource.data.ownerUid;
+    }
+
   }
 }

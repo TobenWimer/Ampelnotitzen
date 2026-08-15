@@ -7,5 +7,13 @@ service firebase.storage {
     match /clipboardUploads/{userId}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // Intertransfer-Gates: Empfaenger sind nicht angemeldet, deshalb ist Lesen offen.
+    // Der Schutz liegt in der zufaelligen Gate-ID im Pfad (nicht erratbar).
+    // Schreiben/Loeschen bleibt auf den Besitzer begrenzt (uid steht im Pfad).
+    match /gateUploads/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
   }
 }

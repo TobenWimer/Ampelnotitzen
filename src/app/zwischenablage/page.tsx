@@ -19,6 +19,7 @@ import {
 import { downloadFileFromUrl } from "@/lib/download";
 import { downloadAllFiles, downloadFilesAsZip, shareFiles, canShareFiles } from "@/lib/shareFiles";
 import { TransferLine } from "@/components/hud/TransferLine";
+import { IntertransferPanel } from "@/components/hud/IntertransferPanel";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 
 function timeAgo(ts: number): string {
@@ -499,9 +500,12 @@ export default function ZwischenablagePage() {
             </p>
           )}
         </div>
-        <p className="text-[10px] text-cyan-300/30 text-center mt-4 tracking-wide">
+        <p className="text-[10px] text-cyan-300/30 text-center mt-4 mb-8 tracking-wide">
           Inhalt löscht sich automatisch nach 3 Minuten.
         </p>
+
+        {/* Intertransfer: Dateien per Link an Dritte ohne Account weitergeben */}
+        <IntertransferPanel uid={user?.uid ?? null} />
       </div>
 
       <HudStyles />
