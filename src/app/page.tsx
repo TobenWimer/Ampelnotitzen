@@ -1,19 +1,31 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import Protected from "@/components/Protected";
 import { auth, db, signOut } from "@/lib/firebase";
 import { useEffect, useState } from "react";
-import { Settings, ClipboardCopy, Check } from "lucide-react";
+import {
+  Settings,
+  ClipboardCopy,
+  Check,
+  StickyNote,
+  TrendingUp,
+  Activity,
+  ClipboardList,
+  FolderOpen,
+} from "lucide-react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { isClipboardExpired, ClipboardData } from "@/lib/clipboard";
+import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { ReactorEmblem } from "@/components/hud/ReactorEmblem";
 
 type Module = {
   key: string;
   title: string;
   desc: string;
-  href?: string;
+  href: string;
+  icon: typeof StickyNote;
+  accent: string;
 };
 
 const modules: Module[] = [
@@ -22,59 +34,63 @@ const modules: Module[] = [
     title: "Notizen",
     desc: "Kleine Gedanken schnell festhalten.",
     href: "/notes",
+    icon: StickyNote,
+    accent: "#fbbf24",
   },
   {
     key: "tracker",
     title: "Investment Tracker",
     desc: "Pots verwalten, Trades eröffnen und Gewinne verfolgen.",
     href: "/tracker",
+    icon: TrendingUp,
+    accent: "#34d399",
   },
   {
     key: "daily",
     title: "Daily Recap",
     desc: "Tägliche Selbstbewertung: besser oder schlechter als gestern?",
     href: "/daily",
+    icon: Activity,
+    accent: "#a78bfa",
   },
   {
     key: "zwischenablage",
     title: "Zwischenablage",
     desc: "Auf einem Gerät einfügen, auf jedem anderen sofort kopierbar.",
     href: "/zwischenablage",
+    icon: ClipboardList,
+    accent: "#22d3ee",
   },
   {
     key: "dokumente",
     title: "Dokumente",
     desc: "Ordner und Dokumente organisieren.",
     href: "/dokumente",
+    icon: FolderOpen,
+    accent: "#38bdf8",
   },
 ];
 
 function Card({ m }: { m: Module }) {
-  const base =
-    "group relative rounded-2xl border backdrop-blur-md p-5 shadow-sm transition " +
-    "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 border-black/20";
-  const hover = m.href ? "hover:shadow-lg hover:border-black/40" : "opacity-60 cursor-not-allowed";
-
-  const content = (
-    <>
-      <div className="flex items-center gap-3 mb-3">
-        <h3 className="text-xl font-bold text-black tracking-tight">{m.title}</h3>
-      </div>
-      <p className="text-sm text-gray-700">{m.desc}</p>
-    </>
-  );
-
-  if (m.href) {
-    return (
-      <Link href={m.href} className={`${base} ${hover}`} aria-label={`${m.title} öffnen`}>
-        {content}
-      </Link>
-    );
-  }
+  const Icon = m.icon;
   return (
-    <div className={`${base} ${hover}`} aria-disabled>
-      {content}
-    </div>
+    <Link
+      href={m.href}
+      aria-label={`${m.title} öffnen`}
+      className="hud-panel hud-panel-hover group relative rounded-2xl p-5 block"
+      style={{ borderColor: `${m.accent}44` }}
+    >
+      <span className="hud-corner hud-corner-tl" style={{ borderColor: m.accent }} />
+      <span className="hud-corner hud-corner-tr" style={{ borderColor: m.accent }} />
+      <span className="hud-corner hud-corner-bl" style={{ borderColor: m.accent }} />
+      <span className="hud-corner hud-corner-br" style={{ borderColor: m.accent }} />
+
+      <div className="relative z-10 flex items-center gap-3 mb-3">
+        <Icon size={22} style={{ color: m.accent, filter: `drop-shadow(0 0 6px ${m.accent}aa)` }} />
+        <h3 className="text-base font-bold tracking-wide uppercase text-cyan-50">{m.title}</h3>
+      </div>
+      <p className="relative z-10 text-sm text-cyan-200/50 leading-relaxed">{m.desc}</p>
+    </Link>
   );
 }
 
@@ -122,12 +138,8 @@ function ClipboardQuickCopy() {
   };
 
   return (
-    <button
-      onClick={handleCopy}
-      title="Aus der Zwischenablage kopieren"
-      className="p-2 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md hover:bg-white/60 transition flex items-center gap-1.5"
-    >
-      {copied ? <Check size={20} className="text-green-600" /> : <ClipboardCopy size={20} className="text-gray-800" />}
+    <button onClick={handleCopy} title="Aus der Zwischenablage kopieren" className="hud-btn hud-btn-outline">
+      {copied ? <Check size={16} className="inline -mt-0.5" /> : <ClipboardCopy size={16} className="inline -mt-0.5" />}
     </button>
   );
 }
@@ -136,10 +148,16 @@ function Header() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="w-full flex items-center justify-between px-6 py-4 bg-white/40 backdrop-blur-md border-b border-black/10">
-      <div className="flex items-center gap-3">
-        <Image src="/logo.png" alt="OneStepBehind Logo" width={40} height={40} />
-        <h1 className="text-2xl font-bold text-black">OneStepBehind</h1>
+    <header className="relative z-10 w-full flex items-center justify-between px-6 py-4 border-b border-cyan-400/20 bg-black/20 backdrop-blur-sm">
+      <div className="flex items-center gap-4">
+        <ReactorEmblem size={52} />
+        <div>
+          <h1 className="hud-title text-xl font-bold text-cyan-100 uppercase">OneStepBehind</h1>
+          <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase mt-0.5">
+            <span className="hud-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
+            Sync aktiv
+          </span>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -147,23 +165,16 @@ function Header() {
         <div className="relative">
           <button
             onClick={() => setOpen((o) => !o)}
-            className="p-2 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md hover:bg-white/60 transition"
+            className="hud-btn hud-btn-outline"
             aria-haspopup="menu"
             aria-expanded={open}
           >
-            <Settings size={20} className="text-gray-800" />
+            <Settings size={16} className="inline -mt-0.5" />
           </button>
 
           {open && (
-            <div
-              role="menu"
-              className="absolute right-0 mt-2 w-40 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/70 via-white/40 to-gray-100/60 backdrop-blur-md shadow-lg p-2"
-            >
-              <button
-                onClick={signOut}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/70 text-gray-900 text-sm"
-                role="menuitem"
-              >
+            <div role="menu" className="hud-menu absolute right-0 mt-2 min-w-40 rounded-xl overflow-hidden z-50">
+              <button onClick={signOut} className="hud-menu-item" role="menuitem">
                 Abmelden
               </button>
             </div>
@@ -177,15 +188,17 @@ function Header() {
 export default function Home() {
   return (
     <Protected>
-      <main className="min-h-screen bg-white flex flex-col">
+      <main className="min-h-screen hud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono">
+        <div className="hud-grid pointer-events-none absolute inset-0" />
         <Header />
-        <div className="flex-1 max-w-5xl mx-auto px-6 py-10">
+        <div className="relative z-10 flex-1 max-w-5xl mx-auto px-6 py-10 w-full">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {modules.map((m) => (
               <Card key={m.key} m={m} />
             ))}
           </div>
         </div>
+        <HudGlobalStyles />
       </main>
     </Protected>
   );
