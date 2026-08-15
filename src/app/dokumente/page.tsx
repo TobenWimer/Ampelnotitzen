@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
   collection,
@@ -18,10 +18,11 @@ import {
   updateDoc,
   deleteDoc,
 } from "firebase/firestore";
-import type { Folder, DocItem, GridItem, FolderColor } from "@/components/dokumente/types";
+import type { DocKind, Folder, DocItem, GridItem, FolderColor } from "@/components/dokumente/types";
 import { FolderTile, DocumentTile } from "@/components/dokumente/Tiles";
 import { ItemNameMenu } from "@/components/dokumente/NameMenu";
 import DokumenteHudStyles from "@/components/dokumente/HudStyles";
+import { uploadDocumentFile, deleteDocumentFile } from "@/components/dokumente/upload";
 
 /* ======================
    Page
@@ -55,6 +56,10 @@ export default function DokumenteRootPage() {
   // UI: „Neues Dokument“
   const [isCreateDocOpen, setIsCreateDocOpen] = useState(false);
   const [newDocName, setNewDocName] = useState("");
+
+  // UI: Datei-Upload
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
 
   // ----- Laden: Unterordner auf Root -----
   useEffect(() => {
@@ -127,6 +132,11 @@ export default function DokumenteRootPage() {
             color: (data.color as FolderColor) ?? "blue",
             createdAtClient:
               typeof data.createdAtClient === "number" ? data.createdAtClient : 0,
+            docKind: (data.docKind as DocKind) ?? "canvas",
+            storagePath: data.storagePath as string | undefined,
+            downloadURL: data.downloadURL as string | undefined,
+            mimeType: data.mimeType as string | undefined,
+            sizeBytes: data.sizeBytes as number | undefined,
           };
         });
         raw.sort((a, b) => a.createdAtClient - b.createdAtClient);
@@ -217,6 +227,22 @@ export default function DokumenteRootPage() {
     setIsCreateDocOpen(false);
   };
 
+  // ----- Datei hochladen -----
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // erlaubt erneutes Auswählen derselben Datei
+    if (!file || !uid) return;
+    setUploadPct(0);
+    try {
+      await uploadDocumentFile({ file, uid, parentPathSlug: currentPathSlug, onProgress: setUploadPct });
+    } catch (err) {
+      console.error("Upload fehlgeschlagen:", err);
+      alert("Datei-Upload fehlgeschlagen.");
+    } finally {
+      setUploadPct(null);
+    }
+  };
+
   // ----- rekursiv löschen von Ordnerbäumen -----
   const deleteFolderTree = async ({
     parentPathSlug,
@@ -253,6 +279,7 @@ export default function DokumenteRootPage() {
         )
       );
       for (const d of snapD.docs) {
+        await deleteDocumentFile(d.data().storagePath as string | undefined);
         await deleteDoc(doc(db, "documents", d.id));
       }
     }
@@ -291,10 +318,11 @@ export default function DokumenteRootPage() {
     if (!name) return;
     await updateDoc(doc(db, "documents", id), { name: name.trim() });
   };
-  const handleDeleteDoc = async (id: string) => {
-    const ok = confirm("Dieses Dokument löschen?");
+  const handleDeleteDoc = async (d: DocItem) => {
+    const ok = confirm(d.docKind === "file" ? "Diese Datei löschen?" : "Dieses Dokument löschen?");
     if (!ok) return;
-    await deleteDoc(doc(db, "documents", id));
+    await deleteDocumentFile(d.storagePath);
+    await deleteDoc(doc(db, "documents", d.id));
   };
   const handleColorDoc = async (id: string, color: FolderColor) => {
     await updateDoc(doc(db, "documents", id), { color });
@@ -395,6 +423,16 @@ export default function DokumenteRootPage() {
                 </button>
               </div>
             )}
+
+            {/* Datei hochladen */}
+            <input ref={fileInputRef} type="file" onChange={handleFileSelected} className="hidden" />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="dhud-btn dhud-btn-outline"
+              disabled={!uid || uploadPct !== null}
+            >
+              {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Datei hochladen"}
+            </button>
           </div>
         </div>
 
@@ -429,16 +467,12 @@ export default function DokumenteRootPage() {
                 </div>
               ) : (
                 <div key={`d-${it.doc.id}-${idx}`} className="flex flex-col items-stretch gap-2">
-                  <DocumentTile
-                    href={`/dokumente/doc/${encodeURIComponent(it.doc.id)}`}
-                    name={it.doc.name}
-                    color={it.doc.color ?? "blue"}
-                  />
+                  <DocumentTile doc={it.doc} />
                   <ItemNameMenu
                     name={it.doc.name}
                     color={it.doc.color ?? "blue"}
                     onRename={() => handleRenameDoc(it.doc.id)}
-                    onDelete={() => handleDeleteDoc(it.doc.id)}
+                    onDelete={() => handleDeleteDoc(it.doc)}
                     onColor={(c) => handleColorDoc(it.doc.id, c)}
                   />
                 </div>

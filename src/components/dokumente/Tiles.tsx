@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Folder as FolderIcon, FileText } from "lucide-react";
+import { Folder as FolderIcon, FileText, Image as ImageIcon, File as FileIcon } from "lucide-react";
 import { hudColor } from "./hud";
-import type { FolderColor } from "./types";
+import type { DocItem, FolderColor } from "./types";
 
 function Corners() {
   return (
@@ -35,21 +35,36 @@ export function FolderTile({ href, name, color }: { href: string; name: string; 
   );
 }
 
-export function DocumentTile({ href, name, color }: { href: string; name: string; color?: FolderColor }) {
-  const glow = hudColor(color);
-  return (
-    <Link
-      href={href}
-      title={name}
-      prefetch={false}
-      className="dhud-tile group relative block w-full aspect-[4/3] rounded-xl overflow-hidden"
-      style={{ "--glow": glow } as React.CSSProperties}
-    >
+// Zeigt gezeichnete Dokumente (führt in den Editor) und hochgeladene Dateien
+// (öffnet/lädt die Datei direkt) mit passendem Icon in derselben Kachel-Optik
+export function DocumentTile({ doc }: { doc: DocItem }) {
+  const glow = hudColor(doc.color);
+  const isFile = doc.docKind === "file";
+  const Icon = isFile ? (doc.mimeType?.startsWith("image/") ? ImageIcon : FileIcon) : FileText;
+
+  const inner = (
+    <>
       <Corners />
       <div className="relative z-10 h-full flex items-center justify-center">
-        <FileText size={38} strokeWidth={1.5} style={{ color: glow, filter: `drop-shadow(0 0 8px ${glow}aa)` }} />
+        <Icon size={38} strokeWidth={1.5} style={{ color: glow, filter: `drop-shadow(0 0 8px ${glow}aa)` }} />
       </div>
-      <span className="sr-only">{name}</span>
+      <span className="sr-only">{doc.name}</span>
+    </>
+  );
+
+  const className = "dhud-tile group relative block w-full aspect-[4/3] rounded-xl overflow-hidden";
+  const style = { "--glow": glow } as React.CSSProperties;
+
+  if (isFile) {
+    return (
+      <a href={doc.downloadURL} target="_blank" rel="noopener noreferrer" title={doc.name} className={className} style={style}>
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <Link href={`/dokumente/doc/${encodeURIComponent(doc.id)}`} prefetch={false} title={doc.name} className={className} style={style}>
+      {inner}
     </Link>
   );
 }

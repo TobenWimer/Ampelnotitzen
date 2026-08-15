@@ -10,6 +10,7 @@ import {
   signOut as fbSignOut,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
 /**
  * ⚠️ Firebase Config – exakt aus der Firebase Console (Web-App "Config")
@@ -30,6 +31,7 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 // Services
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 // Provider
 const provider = new GoogleAuthProvider();

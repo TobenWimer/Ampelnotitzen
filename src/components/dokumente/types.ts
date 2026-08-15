@@ -17,11 +17,20 @@ export type Folder = {
   createdAtClient?: number;
 };
 
+// "canvas" = gezeichnetes Dokument (Editor unter doc/[id]), "file" = hochgeladene Datei.
+// Fehlt docKind (alte Dokumente vor diesem Feature), gilt es als "canvas".
+export type DocKind = "canvas" | "file";
+
 export type DocItem = {
   id: string;
   name: string;
   color?: FolderColor;
   createdAtClient: number;
+  docKind?: DocKind;
+  storagePath?: string;
+  downloadURL?: string;
+  mimeType?: string;
+  sizeBytes?: number;
 };
 
 export type GridItem =
