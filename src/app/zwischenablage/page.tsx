@@ -196,18 +196,6 @@ export default function ZwischenablagePage() {
     }
   }, [visible, flash]);
 
-  const handleCopyImage = useCallback(async () => {
-    if (!visible?.downloadURL) return;
-    try {
-      const res = await fetch(visible.downloadURL);
-      const blob = await res.blob();
-      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-      flash("Bild kopiert.");
-    } catch {
-      flash("Kopieren nicht möglich – bitte herunterladen.");
-    }
-  }, [visible, flash]);
-
   const handleDownloadFile = useCallback(async () => {
     if (!visible?.downloadURL || !visible.fileName) return;
     try {
@@ -296,16 +284,9 @@ export default function ZwischenablagePage() {
           </button>
 
           {visible?.kind === "file" ? (
-            <>
-              {isImageFile && (
-                <button onClick={handleCopyImage} className="zwa-btn zwa-btn-outline">
-                  Bild kopieren
-                </button>
-              )}
-              <button onClick={handleDownloadFile} className="zwa-btn zwa-btn-outline">
-                Herunterladen
-              </button>
-            </>
+            <button onClick={handleDownloadFile} className="zwa-btn zwa-btn-outline">
+              Herunterladen
+            </button>
           ) : (
             <button onClick={handleCopy} disabled={!visible?.text} className="zwa-btn zwa-btn-outline">
               Kopieren
