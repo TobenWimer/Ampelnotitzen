@@ -40,6 +40,7 @@ export default function ZwischenablagePage() {
   const [status, setStatus] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [downloadPct, setDownloadPct] = useState<number | null>(null);
   const [, forceTick] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -200,11 +201,14 @@ export default function ZwischenablagePage() {
 
   const handleDownloadFile = useCallback(async () => {
     if (!visible?.downloadURL || !visible.fileName) return;
+    setDownloadPct(0);
     try {
-      await downloadFileFromUrl(visible.downloadURL, visible.fileName);
+      await downloadFileFromUrl(visible.downloadURL, visible.fileName, setDownloadPct);
     } catch (err) {
       console.error("Download fehlgeschlagen:", err);
       alert("Download fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.");
+    } finally {
+      setDownloadPct(null);
     }
   }, [visible]);
 
@@ -251,7 +255,7 @@ export default function ZwischenablagePage() {
             ← Zurück
           </Link>
           <span className="text-cyan-400/20">|</span>
-          <h1 className="zwa-title text-lg font-bold text-cyan-100 uppercase">Zwischenablage</h1>
+          <h1 className="zwa-title text-lg font-bold text-cyan-100 uppercase">Transfer</h1>
         </div>
         <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
           <span className="zwa-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
@@ -276,6 +280,13 @@ export default function ZwischenablagePage() {
                 : "Leitung frei"
             }
             remainingFraction={remainingFraction}
+            activity={
+              uploadPct !== null
+                ? { type: "upload", pct: uploadPct }
+                : downloadPct !== null
+                ? { type: "download", pct: downloadPct }
+                : null
+            }
           />
         </div>
 

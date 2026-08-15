@@ -55,7 +55,7 @@ const modules: Module[] = [
   },
   {
     key: "zwischenablage",
-    title: "Zwischenablage",
+    title: "Transfer",
     desc: "Auf einem Gerät einfügen, auf jedem anderen sofort kopierbar.",
     href: "/zwischenablage",
     icon: ClipboardList,
