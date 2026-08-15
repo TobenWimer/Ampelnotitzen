@@ -46,6 +46,21 @@ export async function uploadDocumentFile({
   });
 }
 
+// Erzwingt echten Datei-Download (Blob statt direkter Navigation), da eine simple
+// Link-Navigation zur Firebase-URL vom Browser nur angezeigt statt heruntergeladen wird
+export async function downloadDocumentFile(url: string, filename: string) {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 // Best effort: Storage-Objekt entfernen, falls vorhanden. Fehler werden verschluckt,
 // damit das Loeschen des Firestore-Dokuments (der eigentlich wichtige Teil) nicht blockiert
 export async function deleteDocumentFile(storagePath?: string) {

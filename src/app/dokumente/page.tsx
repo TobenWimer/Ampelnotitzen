@@ -22,7 +22,7 @@ import type { DocKind, Folder, DocItem, GridItem, FolderColor } from "@/componen
 import { FolderTile, DocumentTile } from "@/components/dokumente/Tiles";
 import { ItemNameMenu } from "@/components/dokumente/NameMenu";
 import DokumenteHudStyles from "@/components/dokumente/HudStyles";
-import { uploadDocumentFile, deleteDocumentFile } from "@/components/dokumente/upload";
+import { uploadDocumentFile, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
 import StorageRing from "@/components/dokumente/StorageRing";
 
 /* ======================
@@ -482,7 +482,7 @@ export default function DokumenteRootPage() {
                     onColor={(c) => handleColorDoc(it.doc.id, c)}
                     onDownload={
                       it.doc.docKind === "file" && it.doc.downloadURL
-                        ? () => window.open(it.doc.downloadURL, "_blank", "noopener,noreferrer")
+                        ? () => downloadDocumentFile(it.doc.downloadURL!, it.doc.name)
                         : undefined
                     }
                   />
