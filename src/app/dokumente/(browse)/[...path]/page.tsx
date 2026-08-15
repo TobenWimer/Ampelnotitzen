@@ -24,7 +24,7 @@ import type { DocKind, Folder, DocItem, GridItem, FolderColor } from "@/componen
 import { FolderTile, DocumentTile } from "@/components/dokumente/Tiles";
 import { ItemNameMenu } from "@/components/dokumente/NameMenu";
 import DokumenteHudStyles from "@/components/dokumente/HudStyles";
-import { uploadDocumentFile, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
+import { uploadMultipleFiles, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
 import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
 import { usePreviewPref } from "@/components/dokumente/usePreviewPref";
@@ -250,20 +250,54 @@ export default function AnyDepthFolderPage() {
     setIsCreateDocOpen(false);
   };
 
-  // ----- Datei hochladen -----
-  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // erlaubt erneutes Auswählen derselben Datei
-    if (!file || !uid) return;
+  // ----- Datei(en) hochladen -----
+  const uploadFiles = async (files: File[]) => {
+    if (files.length === 0 || !uid) return;
     setUploadPct(0);
     try {
-      await uploadDocumentFile({ file, uid, parentPathSlug: currentPathSlug, onProgress: setUploadPct });
+      await uploadMultipleFiles({ files, uid, parentPathSlug: currentPathSlug, onProgress: setUploadPct });
     } catch (err) {
       console.error("Upload fehlgeschlagen:", err);
       alert("Datei-Upload fehlgeschlagen.");
     } finally {
       setUploadPct(null);
     }
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // erlaubt erneutes Auswählen derselben Datei(en)
+    await uploadFiles(files);
+  };
+
+  // ----- Drag & Drop -----
+  const dragCounterRef = useRef(0);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.types.includes("Files")) {
+      dragCounterRef.current += 1;
+      setIsDragOver(true);
+    }
+  };
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragOver(false);
+    }
+  };
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    await uploadFiles(files);
   };
 
   // ----- rekursiv löschen von Ordnerbäumen -----
@@ -402,8 +436,22 @@ export default function AnyDepthFolderPage() {
   );
 
   return (
-    <div className="min-h-screen dhud-bg text-cyan-50 relative overflow-hidden font-mono">
+    <div
+      className="min-h-screen dhud-bg text-cyan-50 relative overflow-hidden font-mono"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className="dhud-grid pointer-events-none absolute inset-0" />
+
+      {isDragOver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm border-4 border-dashed border-cyan-400/60 pointer-events-none">
+          <div className="text-cyan-200 text-lg tracking-widest uppercase font-semibold text-center px-6">
+            Dateien hier ablegen zum Hochladen
+          </div>
+        </div>
+      )}
 
       <div className="relative z-10 p-6 md:p-8 max-w-6xl mx-auto">
         {/* Header */}
@@ -510,14 +558,15 @@ export default function AnyDepthFolderPage() {
               </div>
             )}
 
-            {/* Datei hochladen */}
-            <input ref={fileInputRef} type="file" onChange={handleFileSelected} className="hidden" />
+            {/* Datei(en) hochladen */}
+            <input ref={fileInputRef} type="file" multiple onChange={handleFileSelected} className="hidden" />
             <button
               onClick={() => fileInputRef.current?.click()}
               className="dhud-btn dhud-btn-outline"
               disabled={!uid || uploadPct !== null}
+              title="Auswaehlen oder Dateien per Drag&Drop irgendwo auf die Seite ziehen"
             >
-              {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Datei hochladen"}
+              {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Datei(en) hochladen"}
             </button>
 
             {/* Bild-Vorschau an/aus */}

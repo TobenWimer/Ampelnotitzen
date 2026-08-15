@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
 import type { DocItem } from "./types";
+import { downloadDocumentFile } from "./upload";
 
 // Vollbild-Bildbetrachter: oeffnet sich beim Klick auf eine Bild-Kachel
 // (nur wenn Vorschau an ist), erlaubt Durchblaettern aller Bilder im Ordner
@@ -19,6 +20,21 @@ export function ImageLightbox({
   onIndexChange: (i: number) => void;
 }) {
   const current = images[index];
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!current.downloadURL || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      await downloadDocumentFile(current.downloadURL, current.name);
+    } catch (err) {
+      console.error("Download fehlgeschlagen:", err);
+      alert("Download fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -37,16 +53,26 @@ export function ImageLightbox({
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm font-mono"
       onClick={onClose}
     >
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        className="absolute top-5 right-5 z-10 h-10 w-10 flex items-center justify-center rounded-full border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 hover:border-cyan-300 transition"
-        title="Schließen"
-      >
-        <X size={18} />
-      </button>
+      <div className="absolute top-5 right-5 z-10 flex items-center gap-2">
+        <button
+          onClick={handleDownload}
+          disabled={isDownloading}
+          className="h-10 w-10 flex items-center justify-center rounded-full border border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10 hover:border-emerald-300 transition disabled:opacity-40"
+          title="Bild herunterladen"
+        >
+          {isDownloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="h-10 w-10 flex items-center justify-center rounded-full border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 hover:border-cyan-300 transition"
+          title="Schließen"
+        >
+          <X size={18} />
+        </button>
+      </div>
 
       {images.length > 1 && (
         <>

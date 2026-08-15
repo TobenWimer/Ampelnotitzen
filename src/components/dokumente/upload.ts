@@ -46,6 +46,32 @@ export async function uploadDocumentFile({
   });
 }
 
+// Laedt mehrere Dateien nacheinander hoch (Datei-Picker mit multiple oder Drag&Drop),
+// meldet den kombinierten Fortschritt ueber alle Dateien hinweg (gleich gewichtet pro Datei)
+export async function uploadMultipleFiles({
+  files,
+  uid,
+  parentPathSlug,
+  onProgress,
+}: {
+  files: File[];
+  uid: string;
+  parentPathSlug: string;
+  onProgress?: (pct: number) => void;
+}) {
+  const total = files.length;
+  for (let i = 0; i < total; i++) {
+    await uploadDocumentFile({
+      file: files[i],
+      uid,
+      parentPathSlug,
+      onProgress: (filePct) => {
+        onProgress?.(Math.round(((i + filePct / 100) / total) * 100));
+      },
+    });
+  }
+}
+
 // Erzwingt echten Datei-Download (Blob statt direkter Navigation), da eine simple
 // Link-Navigation zur Firebase-URL vom Browser nur angezeigt statt heruntergeladen wird.
 // Liest den Response-Body gestreamt statt res.blob(), damit echter Fortschritt (Ring) moeglich ist
