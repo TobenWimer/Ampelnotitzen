@@ -186,10 +186,15 @@ export default function HudGlobalStyles() {
         90% { opacity: 1; }
         100% { top: 100%; opacity: 0; }
       }
-      /* horizontaler Transfer-Puls, laeuft von links nach rechts durch eine Leitung */
+      /* horizontale Transfer-Pulse. Bewusst zwei eigene Keyframes statt
+         animation-direction:reverse, damit Punkt und Schweif zusammenbleiben */
       @keyframes hud-transfer {
-        0% { left: -20%; }
+        0% { left: -3rem; }
         100% { left: 100%; }
+      }
+      @keyframes hud-transfer-rev {
+        0% { left: 100%; }
+        100% { left: -3rem; }
       }
       @keyframes hud-dash-flow {
         to { stroke-dashoffset: -100; }

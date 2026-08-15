@@ -37,6 +37,13 @@ export function TransferLine({
   const flowReverse = activity ? activity.type === "download" : reverse;
   const busy = !!activity;
 
+  // Drei Intensitaetsstufen: Standby laeuft bewusst auch, nur traege und blass
+  const packets = busy
+    ? { count: 4, durationSec: 1.6, opacity: 0.85, dot: 6, glow: 9 }
+    : active
+    ? { count: 3, durationSec: 2.6, opacity: 0.7, dot: 6, glow: 8 }
+    : { count: 2, durationSec: 6, opacity: 0.4, dot: 4, glow: 5 };
+
   const endpoint = (icon: React.ReactNode, caption: string) => (
     <div className="flex flex-col items-center gap-1 shrink-0">
       <div
@@ -87,15 +94,16 @@ export function TransferLine({
               className="absolute left-0 right-0 h-[2px]"
               style={{
                 background: `linear-gradient(90deg, ${color}33, ${color}cc, ${color}33)`,
-                boxShadow: active ? `0 0 10px ${color}88` : "none",
-                animation: active ? "none" : "hud-idle-breath 7s ease-in-out infinite",
+                boxShadow: active || busy ? `0 0 8px ${color}66` : "none",
+                animation: active || busy ? "none" : "hud-idle-breath 7s ease-in-out infinite",
               }}
             />
 
             {/* Fuellstand: waehrend eines Transfers der Fortschritt, sonst die
-                verbleibende Gueltigkeit des Inhalts */}
+                verbleibende Gueltigkeit des Inhalts. Waechst immer von links, damit
+                er als Fortschrittsbalken lesbar bleibt */}
             <div
-              className={`absolute h-[4px] rounded-full ${busy ? "" : "transition-all duration-1000"}`}
+              className={`absolute left-0 h-[4px] rounded-full ${busy ? "" : "transition-all duration-1000"}`}
               style={{
                 width: busy
                   ? `${Math.max(2, activity!.pct)}%`
@@ -103,8 +111,7 @@ export function TransferLine({
                   ? `${Math.max(2, remainingFraction * 100)}%`
                   : "0%",
                 background: `linear-gradient(90deg, ${color}, #ecfeff)`,
-                boxShadow: `0 0 14px 2px ${color}`,
-                ...(flowReverse ? { right: 0 } : { left: 0 }),
+                boxShadow: `0 0 10px 1px ${color}`,
               }}
             />
 
@@ -117,43 +124,42 @@ export function TransferLine({
               />
             ))}
 
-            {/* Datenpakete mit Kometenschweif - waehrend eines Transfers schneller und dichter */}
-            {(active || busy) &&
-              (busy ? [0, 1, 2, 3, 4, 5, 6] : [0, 1, 2, 3, 4]).map((i) => (
-                <span
-                  key={i}
-                  className="absolute"
-                  style={{
-                    animation: `hud-transfer ${busy ? 1 : 1.8}s linear ${i * (busy ? 0.14 : 0.36)}s infinite`,
-                    animationDirection: flowReverse ? "reverse" : "normal",
-                  }}
-                >
-                  <span
-                    className="absolute top-1/2 -translate-y-1/2 h-[3px] w-12 rounded-full"
-                    style={{
-                      background: flowReverse
-                        ? `linear-gradient(90deg, ${color}, transparent)`
-                        : `linear-gradient(90deg, transparent, ${color})`,
-                      [flowReverse ? "left" : "right"]: 0,
-                    }}
-                  />
-                  <span
-                    className="absolute top-1/2 -translate-y-1/2 h-2.5 w-2.5 rounded-full"
-                    style={{ background: "#ecfeff", boxShadow: `0 0 14px 4px ${color}` }}
-                  />
-                </span>
-              ))}
-
-            {/* Standby: langsam driftender Schimmer, damit die Leitung auch leer lebt */}
-            {!active && !busy && (
+            {/* Datenpakete: laufen immer, nur unterschiedlich dicht/kraeftig.
+                Standby traege und blass, belegte Ablage lebhafter, aktiver Transfer
+                zuegig aber bewusst diskret (kein Blendeffekt) */}
+            {Array.from({ length: packets.count }, (_, i) => (
               <span
-                className="absolute h-[3px] w-[35%] rounded-full pointer-events-none"
+                key={`${flowReverse ? "r" : "f"}-${packets.count}-${i}`}
+                className="absolute top-1/2 -translate-y-1/2 h-2 w-12 pointer-events-none"
                 style={{
-                  background: `linear-gradient(90deg, transparent, ${color}dd, transparent)`,
-                  animation: "hud-idle-drift 9s ease-in-out infinite",
+                  animation: `${flowReverse ? "hud-transfer-rev" : "hud-transfer"} ${packets.durationSec}s linear ${
+                    (i * packets.durationSec) / packets.count
+                  }s infinite`,
+                  opacity: packets.opacity,
                 }}
-              />
-            )}
+              >
+                {/* Schweif: liegt immer hinter dem Punkt */}
+                <span
+                  className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[2px] rounded-full"
+                  style={{
+                    background: flowReverse
+                      ? `linear-gradient(90deg, ${color}, transparent)`
+                      : `linear-gradient(90deg, transparent, ${color})`,
+                  }}
+                />
+                {/* Punkt: sitzt an der Spitze in Laufrichtung */}
+                <span
+                  className="absolute top-1/2 -translate-y-1/2 rounded-full"
+                  style={{
+                    height: packets.dot,
+                    width: packets.dot,
+                    background: "#ecfeff",
+                    boxShadow: `0 0 ${packets.glow}px ${packets.glow / 3}px ${color}`,
+                    ...(flowReverse ? { left: 0 } : { right: 0 }),
+                  }}
+                />
+              </span>
+            ))}
           </div>
 
           {endpoint(
