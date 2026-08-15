@@ -32,6 +32,7 @@ export default function ZwischenablagePage() {
   const [manualText, setManualText] = useState("");
   const [manualMode, setManualMode] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [, forceTick] = useState(0);
 
   useEffect(() => {
@@ -45,10 +46,19 @@ export default function ZwischenablagePage() {
   useEffect(() => {
     if (!user) return;
     const ref = doc(db, "clipboard", user.uid);
-    const unsub = onSnapshot(ref, (snap) => {
-      setData(snap.exists() ? (snap.data() as ClipboardData) : null);
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        setData(snap.exists() ? (snap.data() as ClipboardData) : null);
+        setLoading(false);
+        setLoadError(null);
+      },
+      (err) => {
+        console.error("[Zwischenablage] snapshot failed:", err);
+        setLoadError(err.message);
+        setLoading(false);
+      }
+    );
     return unsub;
   }, [user]);
 
@@ -118,6 +128,12 @@ export default function ZwischenablagePage() {
         <p className="text-sm text-gray-500 mb-6">
           Auf einem Gerät einfügen, auf jedem anderen Gerät sofort kopierbar.
         </p>
+
+        {loadError && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            Verbindung zu Firestore fehlgeschlagen: {loadError}
+          </div>
+        )}
 
         <div className="flex items-center gap-3 mb-4">
           <button
