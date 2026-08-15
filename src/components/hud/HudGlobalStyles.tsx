@@ -186,14 +186,17 @@ export default function HudGlobalStyles() {
         90% { opacity: 1; }
         100% { top: 100%; opacity: 0; }
       }
-      /* horizontale Transfer-Pulse. Bewusst zwei eigene Keyframes statt
-         animation-direction:reverse, damit Punkt und Schweif zusammenbleiben */
+      /* Horizontale Transfer-Pulse. Bewusst zwei eigene Keyframes statt
+         animation-direction:reverse, damit Punkt und Schweif zusammenbleiben.
+         Das Paket ist 3rem breit; der Punkt sitzt vorne in Laufrichtung. Die
+         Strecke ist so gewaehlt, dass der Punkt in beiden Richtungen ausserhalb
+         startet und endet (sonst poppt er an einer Kante auf) */
       @keyframes hud-transfer {
-        0% { left: -3rem; }
+        0% { left: -6rem; }
         100% { left: 100%; }
       }
       @keyframes hud-transfer-rev {
-        0% { left: 100%; }
+        0% { left: calc(100% + 3rem); }
         100% { left: -3rem; }
       }
       @keyframes hud-dash-flow {

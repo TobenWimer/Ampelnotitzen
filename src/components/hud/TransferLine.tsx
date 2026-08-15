@@ -28,9 +28,9 @@ export function TransferLine({
     return () => clearTimeout(t);
   }, []);
 
-  // Upload cyan, Download gruen, sonst der normale Belegt/Leer-Zustand
+  // Upload violett, Download gruen, sonst der normale Belegt(cyan)/Leer(grau)-Zustand
   const color =
-    activity?.type === "upload" ? "#22d3ee" : activity?.type === "download" ? "#4ade80" : active ? "#22d3ee" : "#475569";
+    activity?.type === "upload" ? "#a78bfa" : activity?.type === "download" ? "#4ade80" : active ? "#22d3ee" : "#475569";
 
   // Waehrend eines Transfers laufen die Pakete immer in Transferrichtung, unabhaengig
   // von der per Klick gewaehlten Deko-Richtung (Upload = raus, Download = rein)
@@ -129,13 +129,17 @@ export function TransferLine({
                 zuegig aber bewusst diskret (kein Blendeffekt) */}
             {Array.from({ length: packets.count }, (_, i) => (
               <span
-                key={`${flowReverse ? "r" : "f"}-${packets.count}-${i}`}
+                key={i}
                 className="absolute top-1/2 -translate-y-1/2 h-2 w-12 pointer-events-none"
                 style={{
+                  // negative Verzoegerung: die Pakete sind ab dem ersten Frame gleichmaessig
+                  // auf der Strecke verteilt, statt nach jedem Zustandswechsel erst
+                  // nacheinander von links einzutroepfeln
                   animation: `${flowReverse ? "hud-transfer-rev" : "hud-transfer"} ${packets.durationSec}s linear ${
-                    (i * packets.durationSec) / packets.count
+                    -(i * packets.durationSec) / packets.count
                   }s infinite`,
                   opacity: packets.opacity,
+                  transition: "opacity 0.4s ease",
                 }}
               >
                 {/* Schweif: liegt immer hinter dem Punkt */}
