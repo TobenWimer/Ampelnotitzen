@@ -1,11 +1,21 @@
 "use client";
 
 /**
- * OneStepBehind – Dokument-Editor (UI + Seitenverwaltung + globale Editor-Prefs)
- * - Schwarzer Hintergrund, Header (Logo-only, Undo/Redo, Pen/Marker/Eraser), Zoom +/-
- * - A4/A3/A2/A1 (Portrait/Landscape), konstanter Abstand (y-4), runder glassy Button pro Seite
- * - Menü pro Seite: Größe/Ausrichtung, + Seite, Duplizieren, Kopieren, Löschen
- * - Editor-Presets (Farben/Strichdicken) werden nutzerweit in /editorPrefs/{uid} gespeichert
+ * OneStepBehind – Dokument-Editor
+ *
+ * Aufbau (Kamera-Modell):
+ * - Ein Viewport-Container füllt den Bildschirm unter dem Header und fängt ALLE Zeigereingaben ab.
+ *   Der Canvas selbst bekommt `pointer-events: none`, damit iOS ihn nie als "Bild" antippen kann
+ *   (sonst erscheint das native Auswahlmenü und Striche brechen ab).
+ * - Darin liegt eine Welt-Ebene, die per CSS-Transform verschoben und skaliert wird (die "Kamera").
+ *   Die Seiten sind darin in Weltkoordinaten angeordnet. Dadurch ist freies Verschieben und
+ *   beliebiges Zoomen möglich, unabhängig von der Seitengrösse (kein Scroll-Container mehr).
+ * - Touch steuert ausschliesslich die Navigation (1 Finger schiebt, 2 Finger zoomen),
+ *   Stift und Maus zeichnen ausschliesslich. Beides kollidiert dadurch nie.
+ * - Die Canvas-Auflösung folgt der Zoomstufe (verzögert), damit die Zeichnung scharf bleibt,
+ *   ohne bei jedem Pinch-Frame alles neu rastern zu müssen.
+ *
+ * Editor-Presets (Farben/Strichdicken) werden nutzerweit in /editorPrefs/{uid} gespeichert.
  */
 
 import Link from "next/link";
@@ -32,14 +42,14 @@ import {
 import { useEditorPrefs } from "@/hooks/useEditorPrefs";
 
 /* =========================
-   Typen & Defaults (lokal)
+   Typen & Defaults
    ========================= */
 
 type Tool = "pen" | "marker" | "eraser";
 type Format = "A4" | "A3" | "A2" | "A1";
 type Orientation = "portrait" | "landscape";
 
-// Punkte in absoluten Pixeln (Basis: Format/Ausrichtung bei 100% Zoom).
+// Punkte in absoluten Seiten-Pixeln (Basis: Format/Ausrichtung bei 100% Zoom).
 // Bewusst NICHT relativ zur Seitengrösse normiert: die Zeichnung soll ihre
 // tatsächliche Grösse behalten, wenn sich nur das Blattformat/die Ausrichtung ändert.
 type StrokePoint = { x: number; y: number };
@@ -57,9 +67,14 @@ type PageDoc = {
   format: Format;
   orientation: Orientation;
   strokes?: Stroke[];
-  createdAt?: any;
+  createdAt?: unknown;
   createdAtClient?: number;
 };
+
+type PageRef = { id: string; order: number; format: Format; orientation: Orientation; strokes: Stroke[] };
+
+// Kamera: Bildschirm = Welt * k + (x, y)
+type Camera = { x: number; y: number; k: number };
 
 // A4 Portrait ~150 DPI
 const A4_W = 1240;
@@ -76,15 +91,90 @@ function clamp(min: number, max: number, v: number) {
   return Math.max(min, Math.min(max, v));
 }
 
+const MIN_K = 0.05;
+const MAX_K = 8;
+const clampK = (k: number) => clamp(MIN_K, MAX_K, k);
+const PAGE_GAP = 60; // Weltpixel zwischen zwei Blättern
+
 /* =========================
-   Page
+   Zeichen-Helfer
+   ========================= */
+
+function drawStrokeOn(ctx: CanvasRenderingContext2D, stroke: Stroke) {
+  if (stroke.points.length === 0) return;
+  ctx.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
+  ctx.strokeStyle = stroke.color;
+  ctx.lineWidth = stroke.width;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  if (stroke.points.length === 1) {
+    // Einzelner Tipp: als Punkt zeichnen, sonst wäre er unsichtbar
+    const p = stroke.points[0];
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + 0.01, p.y);
+  } else {
+    stroke.points.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+  }
+  ctx.stroke();
+  ctx.globalCompositeOperation = "source-over";
+}
+
+// Marker immer unter Pen zeichnen, sonst "fogt" ein nachträglicher Marker die Pen-Striche ein
+function orderForRender(strokes: Stroke[]) {
+  return [...strokes.filter((s) => s.tool === "marker"), ...strokes.filter((s) => s.tool !== "marker")];
+}
+
+function paintPage(ctx: CanvasRenderingContext2D, w: number, h: number, strokes: Stroke[]) {
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, w, h);
+  orderForRender(strokes).forEach((s) => drawStrokeOn(ctx, s));
+}
+
+// Auflösungsfaktor mit Pixelbudget: iOS/Safari bricht bei zu grossen Canvas-Backingstores ab
+// (grosse Formate wie A1 würden bei hohem Zoom sonst weit über das Limit laufen).
+function resFactorFor(w: number, h: number, k: number, dpr: number) {
+  const MAX_SIDE = 4096;
+  const MAX_PIXELS = 6_000_000;
+  let f = clamp(0.4, 3, k) * dpr;
+  if (w * f > MAX_SIDE) f = MAX_SIDE / w;
+  if (h * f > MAX_SIDE) f = MAX_SIDE / h;
+  if (w * f * h * f > MAX_PIXELS) f = Math.sqrt(MAX_PIXELS / (w * h));
+  return Math.max(0.2, f);
+}
+
+// Kürzester Abstand von Punkt p zu Liniensegment a-b (für den Linien-Radierer)
+function distToSegment(p: StrokePoint, a: StrokePoint, b: StrokePoint) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+function strokeHit(stroke: Stroke, p: StrokePoint, radius: number) {
+  if (stroke.points.length < 2) {
+    return stroke.points.some((sp) => Math.hypot(p.x - sp.x, p.y - sp.y) <= radius);
+  }
+  for (let i = 1; i < stroke.points.length; i++) {
+    if (distToSegment(p, stroke.points[i - 1], stroke.points[i]) <= radius) return true;
+  }
+  return false;
+}
+
+/* =========================
+   Seite
    ========================= */
 
 export default function DocumentEditorPage() {
   const params = useParams() as { id?: string };
   const docId = params?.id ?? "";
 
-  // Auth (UI-Hinweise)
+  // Auth
   const [uid, setUid] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
   useEffect(() => {
@@ -124,104 +214,12 @@ export default function DocumentEditorPage() {
   const [editColorIdx, setEditColorIdx] = useState<{ type: "pen" | "marker"; idx: number } | null>(null);
   const [editSizeIdx, setEditSizeIdx] = useState<{ type: "pen" | "marker" | "eraser"; idx: number } | null>(null);
 
-  // Zoom
-  const [zoomPct, setZoomPct] = useState(100);
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      e.preventDefault();
-      const delta = -Math.sign(e.deltaY) * 10;
-      setZoomPct((p) => clamp(25, 200, p + delta));
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-  const scale = zoomPct / 100;
-
-  // Touch = Navigation (Ein Finger schiebt, zwei Fingern zoomen über die gleiche zoomPct
-  // wie die +/- Buttons, damit die Auflösung mitwächst statt nur optisch gestreckt zu werden).
-  // Läuft komplett eigenständig statt über natives Browser-Scrollen/-Pinchen, weil der Canvas
-  // touch-action:none hat (nötig gegen das iOS Auswahlmenü und damit der Stift nie mitschiebt).
-  const activeTouchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const panStartRef = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
-  // baselineX/Y: der Inhalts-Punkt unter dem Finger-Mittelpunkt, umgerechnet auf 100% Zoom.
-  // Bleibt über die ganze Geste fix, damit der Zoom wirklich um diesen Punkt herum passiert
-  // statt beim Reinzoomen Richtung einer Ecke zu wandern.
-  const pinchStartRef = useRef<{ dist: number; startZoom: number; baselineX: number; baselineY: number } | null>(null);
-
-  const handleScrollerPointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType !== "touch") return;
-    const el = scrollerRef.current;
-    if (!el) return;
-    activeTouchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const pts = [...activeTouchesRef.current.values()];
-
-    if (pts.length === 1) {
-      panStartRef.current = { x: pts[0].x, y: pts[0].y, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
-      pinchStartRef.current = null;
-    } else if (pts.length === 2) {
-      const rect = el.getBoundingClientRect();
-      const midX = (pts[0].x + pts[1].x) / 2;
-      const midY = (pts[0].y + pts[1].y) / 2;
-      const contentX = el.scrollLeft + (midX - rect.left);
-      const contentY = el.scrollTop + (midY - rect.top);
-      pinchStartRef.current = {
-        dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
-        startZoom: zoomPct,
-        baselineX: contentX / (zoomPct / 100),
-        baselineY: contentY / (zoomPct / 100),
-      };
-      panStartRef.current = null;
-    }
-  };
-
-  const handleScrollerPointerMove = (e: React.PointerEvent) => {
-    if (e.pointerType !== "touch" || !activeTouchesRef.current.has(e.pointerId)) return;
-    const el = scrollerRef.current;
-    if (!el) return;
-    activeTouchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    const pts = [...activeTouchesRef.current.values()];
-
-    if (pts.length === 1 && panStartRef.current) {
-      el.scrollLeft = panStartRef.current.scrollLeft - (pts[0].x - panStartRef.current.x);
-      el.scrollTop = panStartRef.current.scrollTop - (pts[0].y - panStartRef.current.y);
-    } else if (pts.length === 2 && pinchStartRef.current) {
-      const start = pinchStartRef.current;
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const newZoom = clamp(25, 200, Math.round(start.startZoom * (dist / start.dist)));
-      setZoomPct(newZoom);
-
-      const rect = el.getBoundingClientRect();
-      const midX = (pts[0].x + pts[1].x) / 2;
-      const midY = (pts[0].y + pts[1].y) / 2;
-      const newContentX = start.baselineX * (newZoom / 100);
-      const newContentY = start.baselineY * (newZoom / 100);
-      el.scrollLeft = newContentX - (midX - rect.left);
-      el.scrollTop = newContentY - (midY - rect.top);
-    }
-  };
-
-  const handleScrollerPointerUp = (e: React.PointerEvent) => {
-    if (e.pointerType !== "touch") return;
-    activeTouchesRef.current.delete(e.pointerId);
-    const pts = [...activeTouchesRef.current.values()];
-    const el = scrollerRef.current;
-    if (pts.length === 1 && el) {
-      panStartRef.current = { x: pts[0].x, y: pts[0].y, scrollLeft: el.scrollLeft, scrollTop: el.scrollTop };
-      pinchStartRef.current = null;
-    } else {
-      panStartRef.current = null;
-      pinchStartRef.current = null;
-    }
-  };
+  const activeColor = tool === "pen" ? currentPenColor : tool === "marker" ? currentMarkerColor : "#000000";
+  const activeSize = tool === "pen" ? currentPenSize : tool === "marker" ? currentMarkerSize : currentEraserSize;
 
   /* =========================
      Seiten (Firestore)
      ========================= */
-  type PageRef = { id: string; order: number; format: Format; orientation: Orientation; strokes: Stroke[] };
 
   const [pages, setPages] = useState<PageRef[]>([]);
   const [pagesReady, setPagesReady] = useState(false);
@@ -251,8 +249,8 @@ export default function DocumentEditorPage() {
               if (count.data().count === 0) {
                 await createTwoDefaultPages(coll, uid);
               }
-            } catch (e) {
-              // log only
+            } catch {
+              // still bleiben, UI zeigt den Fallback
             } finally {
               creatingInitialRef.current = false;
             }
@@ -289,24 +287,16 @@ export default function DocumentEditorPage() {
 
   async function createTwoDefaultPages(collRef: ReturnType<typeof collection>, ownerUid: string) {
     const batch = writeBatch(db);
-    const p0 = doc(collRef);
-    const p1 = doc(collRef);
-    batch.set(p0, {
-      uid: ownerUid,
-      order: 0,
-      format: "A4",
-      orientation: "portrait",
-      createdAt: serverTimestamp(),
-      createdAtClient: Date.now(),
-    } as PageDoc);
-    batch.set(p1, {
-      uid: ownerUid,
-      order: 1,
-      format: "A4",
-      orientation: "portrait",
-      createdAt: serverTimestamp(),
-      createdAtClient: Date.now(),
-    } as PageDoc);
+    [0, 1].forEach((order) => {
+      batch.set(doc(collRef), {
+        uid: ownerUid,
+        order,
+        format: "A4",
+        orientation: "portrait",
+        createdAt: serverTimestamp(),
+        createdAtClient: Date.now(),
+      } as PageDoc);
+    });
     await batch.commit();
   }
 
@@ -317,7 +307,7 @@ export default function DocumentEditorPage() {
     await batch.commit();
   };
 
-  const addPageAfter = async (index: number) => {
+  const insertPageAfter = async (index: number) => {
     if (!uid) return;
     const refPage = pages[index];
     const coll = collection(db, "documents", docId, "pages");
@@ -341,6 +331,7 @@ export default function DocumentEditorPage() {
     await reindexPages(next.map((p, i) => ({ ...p, order: i })));
   };
 
+  // Duplizieren übernimmt jetzt auch die Striche (vorher wurde nur eine leere Seite angelegt)
   const duplicatePageAfter = async (index: number) => {
     if (!uid) return;
     const refPage = pages[index];
@@ -350,6 +341,7 @@ export default function DocumentEditorPage() {
       order: pages.length,
       format: refPage.format,
       orientation: refPage.orientation,
+      strokes: refPage.strokes,
       createdAt: serverTimestamp(),
       createdAtClient: Date.now(),
     } as PageDoc);
@@ -360,7 +352,7 @@ export default function DocumentEditorPage() {
       order: index + 1,
       format: refPage.format,
       orientation: refPage.orientation,
-      strokes: [],
+      strokes: refPage.strokes,
     });
     await reindexPages(next.map((p, i) => ({ ...p, order: i })));
   };
@@ -375,8 +367,7 @@ export default function DocumentEditorPage() {
   };
 
   // Striche behalten ihre absolute Pixelgrösse/Position, wenn sich nur das Blatt ändert
-  // (kein Skalieren, kein Rotieren). Würde dadurch etwas ausserhalb des neuen Blatts liegen,
-  // wird vorher eine Bestätigung verlangt.
+  // (kein Skalieren, kein Rotieren). Würde dadurch etwas ausserhalb liegen, vorher nachfragen.
   const strokesOverflow = (strokes: Stroke[], w: number, h: number) =>
     strokes.some((s) => s.points.some((p) => p.x > w || p.y > h));
 
@@ -386,8 +377,7 @@ export default function DocumentEditorPage() {
     if (target.format === format) return;
     const { w, h } = sizeFor(format, target.orientation);
     if (strokesOverflow(target.strokes, w, h)) {
-      const ok = confirm("Das neue Format ist kleiner als die Zeichnung. Teile davon liegen dann ausserhalb des Blatts. Trotzdem ändern?");
-      if (!ok) return;
+      if (!confirm("Das neue Format ist kleiner als die Zeichnung. Teile davon liegen dann ausserhalb des Blatts. Trotzdem ändern?")) return;
     }
     await updateDoc(doc(coll, target.id), { format });
   };
@@ -398,8 +388,7 @@ export default function DocumentEditorPage() {
     if (target.orientation === orientation) return;
     const { w, h } = sizeFor(target.format, orientation);
     if (strokesOverflow(target.strokes, w, h)) {
-      const ok = confirm("Die neue Ausrichtung ist kleiner als die Zeichnung. Teile davon liegen dann ausserhalb des Blatts. Trotzdem ändern?");
-      if (!ok) return;
+      if (!confirm("Die neue Ausrichtung ist kleiner als die Zeichnung. Teile davon liegen dann ausserhalb des Blatts. Trotzdem ändern?")) return;
     }
     await updateDoc(doc(coll, target.id), { orientation });
   };
@@ -407,6 +396,7 @@ export default function DocumentEditorPage() {
   const saveStrokes = async (index: number, strokes: Stroke[]) => {
     const coll = collection(db, "documents", docId, "pages");
     const target = pages[index];
+    if (!target) return;
     await updateDoc(doc(coll, target.id), { strokes });
   };
 
@@ -415,17 +405,19 @@ export default function DocumentEditorPage() {
     redoStacksRef.current[pageId] = [];
   };
 
-  const handleAddStroke = (index: number, stroke: Stroke) => {
+  const commitStroke = (index: number, stroke: Stroke) => {
     lastPageIndexRef.current = index;
     const target = pages[index];
+    if (!target) return;
     pushHistory(target.id, { kind: "add", stroke });
     saveStrokes(index, [...target.strokes, stroke]);
   };
 
-  const handleEraseStrokes = (index: number, removed: { stroke: Stroke; index: number }[]) => {
+  const commitErase = (index: number, removed: { stroke: Stroke; index: number }[]) => {
     if (removed.length === 0) return;
     lastPageIndexRef.current = index;
     const target = pages[index];
+    if (!target) return;
     pushHistory(target.id, { kind: "erase", removed });
     const removeIdx = new Set(removed.map((r) => r.index));
     saveStrokes(index, target.strokes.filter((_, i) => !removeIdx.has(i)));
@@ -435,6 +427,7 @@ export default function DocumentEditorPage() {
     const idx = lastPageIndexRef.current;
     if (idx === null) return;
     const target = pages[idx];
+    if (!target) return;
     const stack = undoStacksRef.current[target.id] ?? [];
     if (stack.length === 0) return;
     const action = stack[stack.length - 1];
@@ -456,6 +449,7 @@ export default function DocumentEditorPage() {
     const idx = lastPageIndexRef.current;
     if (idx === null) return;
     const target = pages[idx];
+    if (!target) return;
     const stack = redoStacksRef.current[target.id] ?? [];
     if (stack.length === 0) return;
     const action = stack[stack.length - 1];
@@ -471,7 +465,341 @@ export default function DocumentEditorPage() {
   };
 
   /* =========================
-     Header / Icons
+     Welt-Layout & Kamera
+     ========================= */
+
+  // Blätter untereinander, horizontal um die Weltachse x=0 zentriert
+  const layout = useMemo(() => {
+    let y = 0;
+    return pages.map((page) => {
+      const { w, h } = sizeFor(page.format, page.orientation);
+      const entry = { page, x: -w / 2, y, w, h };
+      y += h + PAGE_GAP;
+      return entry;
+    });
+  }, [pages]);
+
+  const [cam, setCam] = useState<Camera>({ x: 0, y: 0, k: 1 });
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  // Refs, damit die Zeiger-Handler immer den aktuellen Stand sehen (keine veralteten Closures)
+  const camRef = useRef(cam);
+  camRef.current = cam;
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+
+  // Canvas-Auflösung folgt dem Zoom verzögert: während des Pinchens skaliert die Kamera
+  // optisch (flüssig), kurz danach wird in passender Auflösung neu gerastert (scharf).
+  const [renderScale, setRenderScale] = useState(1);
+  useEffect(() => {
+    const t = setTimeout(() => setRenderScale(cam.k), 140);
+    return () => clearTimeout(t);
+  }, [cam.k]);
+
+  // Startansicht: erstes Blatt einpassen und mittig zeigen
+  const didInitCamRef = useRef(false);
+  useEffect(() => {
+    if (didInitCamRef.current || layout.length === 0) return;
+    const el = viewportRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    const k = clampK(Math.min(1, (r.width - 64) / layout[0].w));
+    setCam({ k, x: r.width / 2, y: 32 });
+    didInitCamRef.current = true;
+  }, [layout]);
+
+  const screenToWorld = useCallback((clientX: number, clientY: number) => {
+    const el = viewportRef.current;
+    const c = camRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const r = el.getBoundingClientRect();
+    return { x: (clientX - r.left - c.x) / c.k, y: (clientY - r.top - c.y) / c.k };
+  }, []);
+
+  // Zoom um einen festen Bildschirmpunkt: der Weltpunkt darunter bleibt unter dem Punkt
+  const zoomAround = useCallback((screenX: number, screenY: number, factor: number) => {
+    setCam((c) => {
+      const k = clampK(c.k * factor);
+      const rf = k / c.k;
+      return { k, x: screenX - (screenX - c.x) * rf, y: screenY - (screenY - c.y) * rf };
+    });
+  }, []);
+
+  const zoomFromButton = (factor: number) => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    zoomAround(r.width / 2, r.height / 2, factor);
+  };
+
+  const resetView = () => {
+    const el = viewportRef.current;
+    if (!el || layout.length === 0) return;
+    const r = el.getBoundingClientRect();
+    const k = clampK(Math.min(1, (r.width - 64) / layout[0].w));
+    setCam({ k, x: r.width / 2, y: 32 });
+  };
+
+  // Mausrad: normal = verschieben, mit Strg/Cmd = zoomen. Muss non-passiv registriert werden.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) {
+        zoomAround(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0025));
+      } else {
+        setCam((c) => ({ ...c, x: c.x - e.deltaX, y: c.y - e.deltaY }));
+      }
+    };
+    // Safari-eigene Seiten-Zoom-Gesten unterdrücken, sonst zoomt iOS die ganze Seite
+    const prevent = (e: Event) => e.preventDefault();
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("gesturestart", prevent);
+    el.addEventListener("gesturechange", prevent);
+    el.addEventListener("gestureend", prevent);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("gesturestart", prevent);
+      el.removeEventListener("gesturechange", prevent);
+      el.removeEventListener("gestureend", prevent);
+    };
+  }, [zoomAround]);
+
+  /* =========================
+     Canvas-Registry (für Live-Zeichnen)
+     ========================= */
+
+  const canvasesRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const registerCanvas = useCallback((id: string, el: HTMLCanvasElement | null) => {
+    if (el) canvasesRef.current.set(id, el);
+    else canvasesRef.current.delete(id);
+  }, []);
+
+  const ctxFor = (pageIdx: number) => {
+    const entry = layoutRef.current[pageIdx];
+    if (!entry) return null;
+    return canvasesRef.current.get(entry.page.id)?.getContext("2d") ?? null;
+  };
+
+  /* =========================
+     Zeichnen & Radieren (Stift/Maus)
+     ========================= */
+
+  const drawRef = useRef<
+    | { pageIdx: number; style: { color: string; width: number; tool: Tool }; points: StrokePoint[]; last: StrokePoint }
+    | null
+  >(null);
+  const eraseRef = useRef<
+    | { pageIdx: number; working: { stroke: Stroke; index: number }[]; hits: { stroke: Stroke; index: number }[] }
+    | null
+  >(null);
+  const [hoverWorld, setHoverWorld] = useState<StrokePoint | null>(null);
+
+  const isLineEraser = tool === "eraser" && eraserMode === "linie";
+
+  const hitPage = (wx: number, wy: number) => {
+    const L = layoutRef.current;
+    for (let i = 0; i < L.length; i++) {
+      if (wx >= L[i].x && wx <= L[i].x + L[i].w && wy >= L[i].y && wy <= L[i].y + L[i].h) return i;
+    }
+    return -1;
+  };
+
+  const toLocal = (pageIdx: number, world: StrokePoint) => {
+    const entry = layoutRef.current[pageIdx];
+    return { x: world.x - entry.x, y: world.y - entry.y };
+  };
+
+  const applyLineErase = (local: StrokePoint) => {
+    const st = eraseRef.current;
+    if (!st) return;
+    const hits = st.working.filter(({ stroke }) => strokeHit(stroke, local, activeSize / 2));
+    if (hits.length === 0) return;
+    const hitSet = new Set(hits);
+    st.working = st.working.filter((entry) => !hitSet.has(entry));
+    st.hits = [...st.hits, ...hits];
+    const entry = layoutRef.current[st.pageIdx];
+    const ctx = ctxFor(st.pageIdx);
+    if (ctx) paintPage(ctx, entry.w, entry.h, st.working.map((e) => e.stroke));
+  };
+
+  const startDraw = (clientX: number, clientY: number) => {
+    const world = screenToWorld(clientX, clientY);
+    const pageIdx = hitPage(world.x, world.y);
+    if (pageIdx < 0) return;
+    const local = toLocal(pageIdx, world);
+
+    if (isLineEraser) {
+      eraseRef.current = {
+        pageIdx,
+        working: layoutRef.current[pageIdx].page.strokes.map((stroke, index) => ({ stroke, index })),
+        hits: [],
+      };
+      applyLineErase(local);
+      return;
+    }
+    const style = { color: activeColor, width: activeSize, tool };
+    drawRef.current = { pageIdx, style, points: [local], last: local };
+    // Aufsetzpunkt sofort zeichnen, sonst fehlt bei einem kurzen Tipp (i-Punkt,
+    // Satzzeichen) jede Rückmeldung bis zum Loslassen
+    const ctx = ctxFor(pageIdx);
+    if (ctx) drawStrokeOn(ctx, { points: [local], ...style });
+  };
+
+  const extendDraw = (clientX: number, clientY: number) => {
+    const st = drawRef.current;
+    const er = eraseRef.current;
+    if (!st && !er) return;
+    const world = screenToWorld(clientX, clientY);
+
+    if (er) {
+      applyLineErase(toLocal(er.pageIdx, world));
+      return;
+    }
+    if (!st) return;
+
+    const local = toLocal(st.pageIdx, world);
+    const ctx = ctxFor(st.pageIdx);
+    if (ctx) {
+      ctx.globalCompositeOperation = st.style.tool === "eraser" ? "destination-out" : "source-over";
+      ctx.strokeStyle = st.style.color;
+      ctx.lineWidth = st.style.width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(st.last.x, st.last.y);
+      ctx.lineTo(local.x, local.y);
+      ctx.stroke();
+      ctx.globalCompositeOperation = "source-over";
+    }
+    st.points.push(local);
+    st.last = local;
+  };
+
+  const endDraw = () => {
+    const er = eraseRef.current;
+    if (er) {
+      commitErase(er.pageIdx, er.hits);
+      eraseRef.current = null;
+      return;
+    }
+    const st = drawRef.current;
+    drawRef.current = null;
+    if (st && st.points.length >= 1) {
+      commitStroke(st.pageIdx, { points: st.points, ...st.style });
+    }
+  };
+
+  /* =========================
+     Zeigereingaben am Viewport
+     ========================= */
+
+  // Touch = Navigation. Zwei getrennte Kanäle, damit Finger und Stift sich nie in die Quere kommen.
+  const touchesRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const gestureRef = useRef<
+    | { type: "pan"; lastX: number; lastY: number }
+    | { type: "pinch"; lastDist: number; lastMidX: number; lastMidY: number }
+    | null
+  >(null);
+
+  const syncGesture = () => {
+    const pts = [...touchesRef.current.values()];
+    if (pts.length === 1) {
+      gestureRef.current = { type: "pan", lastX: pts[0].x, lastY: pts[0].y };
+    } else if (pts.length >= 2) {
+      gestureRef.current = {
+        type: "pinch",
+        lastDist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+        lastMidX: (pts[0].x + pts[1].x) / 2,
+        lastMidY: (pts[0].y + pts[1].y) / 2,
+      };
+    } else {
+      gestureRef.current = null;
+    }
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    if (e.pointerType === "touch") {
+      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      syncGesture();
+      return;
+    }
+    startDraw(e.clientX, e.clientY);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") {
+      if (!touchesRef.current.has(e.pointerId)) return;
+      touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const g = gestureRef.current;
+      const pts = [...touchesRef.current.values()];
+      const el = viewportRef.current;
+      if (!g || !el) return;
+
+      if (g.type === "pan" && pts.length === 1) {
+        const dx = pts[0].x - g.lastX;
+        const dy = pts[0].y - g.lastY;
+        g.lastX = pts[0].x;
+        g.lastY = pts[0].y;
+        setCam((c) => ({ ...c, x: c.x + dx, y: c.y + dy }));
+      } else if (g.type === "pinch" && pts.length >= 2) {
+        const r = el.getBoundingClientRect();
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        const prevX = g.lastMidX - r.left;
+        const prevY = g.lastMidY - r.top;
+        const nowX = midX - r.left;
+        const nowY = midY - r.top;
+        const factor = g.lastDist > 0 ? dist / g.lastDist : 1;
+        g.lastDist = dist;
+        g.lastMidX = midX;
+        g.lastMidY = midY;
+        // Skalieren um den Fingermittelpunkt UND dessen Verschiebung mitnehmen,
+        // damit zwei Finger gleichzeitig zoomen und schieben können
+        setCam((c) => {
+          const k = clampK(c.k * factor);
+          const rf = k / c.k;
+          return { k, x: nowX - (prevX - c.x) * rf, y: nowY - (prevY - c.y) * rf };
+        });
+      }
+      return;
+    }
+
+    // Stift/Maus: Vorschaukreis des Radierers mitführen
+    if (tool === "eraser") setHoverWorld(screenToWorld(e.clientX, e.clientY));
+    else if (hoverWorld) setHoverWorld(null);
+
+    if (!drawRef.current && !eraseRef.current) return;
+    // Zwischenpunkte auswerten: Apple Pencil liefert deutlich mehr Punkte als Frames,
+    // ohne das werden schnelle Striche eckig
+    const native = e.nativeEvent;
+    const coalesced =
+      typeof native.getCoalescedEvents === "function" ? native.getCoalescedEvents() : [];
+    if (coalesced.length > 0) coalesced.forEach((ev) => extendDraw(ev.clientX, ev.clientY));
+    else extendDraw(e.clientX, e.clientY);
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "touch") {
+      touchesRef.current.delete(e.pointerId);
+      syncGesture();
+      return;
+    }
+    endDraw();
+  };
+
+  const onPointerLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "touch") setHoverWorld(null);
+    onPointerUp(e);
+  };
+
+  /* =========================
+     Icons
      ========================= */
 
   const PenIcon = () => (
@@ -511,17 +839,13 @@ export default function DocumentEditorPage() {
     </svg>
   );
 
-  const activeColor = tool === "pen" ? currentPenColor : tool === "marker" ? currentMarkerColor : "#000000";
-  const activeSize = tool === "pen" ? currentPenSize : tool === "marker" ? currentMarkerSize : currentEraserSize;
-
   return (
-    <div className="min-h-screen bg-black flex flex-col">
+    <div className="h-screen bg-black flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-neutral-900/70 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-4 py-3">
-          <div className="flex items-center gap-3">
-            {/* Logo only */}
-            <Link href="/" title="Home" className="flex items-center gap-2 group">
+      <header className="shrink-0 z-40 bg-neutral-900/70 backdrop-blur-md">
+        <div className="px-4 py-3 overflow-x-auto">
+          <div className="flex items-center gap-3 min-w-max">
+            <Link href="/" title="Home" className="flex items-center gap-2 group shrink-0">
               <Image
                 src="/logo.png"
                 alt="OneStepBehind Logo"
@@ -543,7 +867,7 @@ export default function DocumentEditorPage() {
 
             <div className="mx-3 h-6 w-px bg-white/10" />
 
-            {/* Tools */}
+            {/* Werkzeuge */}
             <ToolBtn title="Stift" active={tool === "pen"} onClick={() => setTool("pen")}>
               <PenIcon />
             </ToolBtn>
@@ -556,7 +880,7 @@ export default function DocumentEditorPage() {
 
             <div className="mx-3 h-6 w-px bg-white/10" />
 
-            {/* Presets (sichtbar je nach Tool) */}
+            {/* Presets (sichtbar je nach Werkzeug) */}
             <div className="relative flex items-center gap-2">
               {tool === "pen" && (
                 <>
@@ -636,7 +960,7 @@ export default function DocumentEditorPage() {
               )}
             </div>
 
-            <div className="hidden md:flex items-center gap-2 ml-2 text-xs text-gray-200">
+            <div className="hidden md:flex items-center gap-2 ml-2 text-xs text-gray-200 shrink-0">
               {tool !== "eraser" && (
                 <>
                   <span className="inline-flex items-center gap-1">
@@ -651,36 +975,39 @@ export default function DocumentEditorPage() {
 
             <div className="flex-1" />
 
-            {/* Zoom Controls */}
-            <div className="flex items-center gap-2">
+            {/* Zoom */}
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 className="rounded-lg border border-white/25 px-2 py-1 text-xs
                            bg-gradient-to-br from-white/10 via-white/5 to-white/0
                            text-white hover:bg-white/10 shadow-sm"
-                onClick={() => setZoomPct((p) => clamp(25, 200, p - 10))}
+                onClick={() => zoomFromButton(1 / 1.25)}
                 title="Zoom -"
               >
                 −
               </button>
-              <div className="min-w-[52px] text-center text-xs text-white/90 select-none">
-                {zoomPct}%
-              </div>
+              <button
+                className="min-w-[56px] text-center text-xs text-white/90 hover:text-white select-none"
+                onClick={resetView}
+                title="Ansicht zurücksetzen"
+              >
+                {Math.round(cam.k * 100)}%
+              </button>
               <button
                 className="rounded-lg border border-white/25 px-2 py-1 text-xs
                            bg-gradient-to-br from-white/10 via-white/5 to-white/0
                            text-white hover:bg-white/10 shadow-sm"
-                onClick={() => setZoomPct((p) => clamp(25, 200, p + 10))}
+                onClick={() => zoomFromButton(1.25)}
                 title="Zoom +"
               >
                 +
               </button>
             </div>
 
-            {/* Home */}
             <Link
               href="/dokumente"
               title="Dokumente"
-              className="ml-2 rounded-xl border border-white/25 px-3 py-2 text-sm
+              className="ml-2 shrink-0 rounded-xl border border-white/25 px-3 py-2 text-sm
                          bg-gradient-to-br from-white/10 via-white/5 to-white/0
                          text-white hover:bg-white/10 shadow-sm"
             >
@@ -691,15 +1018,24 @@ export default function DocumentEditorPage() {
         <div className="h-px w-full bg-white/10" />
       </header>
 
-      {/* Seiten-Layout */}
+      {/* Viewport: fängt alle Zeigereingaben ab. touch-action:none verhindert native
+          Browser-Gesten, die Callout-/Select-Eigenschaften das iOS-Auswahlmenü. */}
       <div
-        ref={scrollerRef}
-        className="flex-1 overflow-auto"
-        style={{ WebkitOverflowScrolling: "touch" }}
-        onPointerDown={handleScrollerPointerDown}
-        onPointerMove={handleScrollerPointerMove}
-        onPointerUp={handleScrollerPointerUp}
-        onPointerCancel={handleScrollerPointerUp}
+        ref={viewportRef}
+        className="relative flex-1 min-h-0 overflow-hidden"
+        style={{
+          touchAction: "none",
+          WebkitTouchCallout: "none",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+          cursor: tool === "eraser" ? "none" : "crosshair",
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerLeave}
+        onContextMenu={(e) => e.preventDefault()}
       >
         {!authReady || !prefsReady ? (
           <div className="text-gray-400 p-6">Initialisiere…</div>
@@ -710,38 +1046,279 @@ export default function DocumentEditorPage() {
         ) : pages.length === 0 ? (
           <NoPagesFallback uid={uid} docId={docId} debugMsg={debugMsg} />
         ) : (
-          <div className="max-w-[calc(2400px)] mx-auto px-2 py-4">
-            {pages.map((p, idx) => (
-              <A4LikePage
-                key={p.id}
-                pageIndex={idx}
-                page={p}
-                scale={scale}
-                tool={tool}
-                eraserMode={eraserMode}
-                color={activeColor}
-                width={activeSize}
-                onAddBelow={() => addPageAfter(idx)}
+          <div
+            className="absolute top-0 left-0 origin-top-left"
+            style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.k})` }}
+          >
+            {layout.map((entry, idx) => (
+              <PageView
+                key={entry.page.id}
+                index={idx}
+                page={entry.page}
+                x={entry.x}
+                y={entry.y}
+                w={entry.w}
+                h={entry.h}
+                camK={cam.k}
+                renderScale={renderScale}
+                registerCanvas={registerCanvas}
+                onAddBelow={() => insertPageAfter(idx)}
                 onDuplicateBelow={() => duplicatePageAfter(idx)}
                 onDelete={() => deletePageAt(idx)}
                 onChangeFormat={(fmt) => changePageFormat(idx, fmt)}
                 onChangeOrientation={(ori) => changePageOrientation(idx, ori)}
-                onAddStroke={(stroke) => handleAddStroke(idx, stroke)}
-                onEraseStrokes={(removed) => handleEraseStrokes(idx, removed)}
-                onNavDown={handleScrollerPointerDown}
-                onNavMove={handleScrollerPointerMove}
-                onNavUp={handleScrollerPointerUp}
               />
             ))}
+
+            {tool === "eraser" && hoverWorld && (
+              <div
+                className="absolute rounded-full border-2 border-black/70 bg-white/20 pointer-events-none"
+                style={{
+                  left: hoverWorld.x - activeSize / 2,
+                  top: hoverWorld.y - activeSize / 2,
+                  width: activeSize,
+                  height: activeSize,
+                }}
+              />
+            )}
           </div>
         )}
+
+        {/* Bedienhinweis */}
+        <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-[11px] text-white/35">
+          Ein Finger schiebt · Zwei Finger zoomen · Stift zeichnet
+        </div>
       </div>
     </div>
   );
 }
 
 /* =========================
-   UI-Atoms
+   Seiten-Ansicht
+   ========================= */
+
+function PageView({
+  index,
+  page,
+  x,
+  y,
+  w,
+  h,
+  camK,
+  renderScale,
+  registerCanvas,
+  onAddBelow,
+  onDuplicateBelow,
+  onDelete,
+  onChangeFormat,
+  onChangeOrientation,
+}: {
+  index: number;
+  page: PageRef;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  camK: number;
+  renderScale: number;
+  registerCanvas: (id: string, el: HTMLCanvasElement | null) => void;
+  onAddBelow: () => void;
+  onDuplicateBelow: () => void;
+  onDelete: () => void;
+  onChangeFormat: (fmt: Format) => void;
+  onChangeOrientation: (ori: Orientation) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const copyPageToClipboard = async () => {
+    try {
+      const cvs = canvasRef.current;
+      if (!cvs) return;
+      const blob: Blob = await new Promise((res, rej) =>
+        cvs.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/png")
+      );
+      if (navigator.clipboard && "ClipboardItem" in window) {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        setInfo("Seite als PNG kopiert.");
+      } else {
+        window.open(URL.createObjectURL(blob), "_blank");
+        setInfo("PNG in neuem Tab geöffnet.");
+      }
+    } catch {
+      setInfo("Kopieren nicht möglich.");
+    } finally {
+      setTimeout(() => setInfo(null), 2200);
+    }
+  };
+
+  useEffect(() => {
+    registerCanvas(page.id, canvasRef.current);
+    return () => registerCanvas(page.id, null);
+  }, [page.id, registerCanvas]);
+
+  // Auflösung an Zoom/Displaydichte anpassen und Striche neu aufbauen
+  useEffect(() => {
+    const cvs = canvasRef.current;
+    if (!cvs) return;
+    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+    const f = resFactorFor(w, h, renderScale, dpr);
+    cvs.width = Math.round(w * f);
+    cvs.height = Math.round(h * f);
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(f, 0, 0, f, 0, 0);
+    paintPage(ctx, w, h, page.strokes);
+  }, [page.strokes, w, h, renderScale]);
+
+  // Bedienelemente gegenskalieren, damit sie bei jedem Zoom gleich gross bleiben
+  const uiScale = 1 / camK;
+
+  return (
+    <div className="absolute" style={{ left: x, top: y, width: w, height: h }}>
+      <canvas
+        ref={canvasRef}
+        draggable={false}
+        className="absolute inset-0 bg-white rounded-xl ring-1 ring-black/20 shadow-2xl pointer-events-none select-none"
+        style={{ width: w, height: h, WebkitTouchCallout: "none", WebkitUserSelect: "none" }}
+      />
+
+      {/* Seitenzahl */}
+      <div
+        className="absolute pointer-events-none text-gray-400"
+        style={{
+          left: 0,
+          top: 0,
+          transform: `scale(${uiScale}) translate(-100%, 0)`,
+          transformOrigin: "top left",
+          paddingRight: 12,
+          fontSize: 12,
+          whiteSpace: "nowrap",
+        }}
+      >
+        Seite {index + 1}
+      </div>
+
+      {/* Seitenmenü: eigener Zeiger-Kanal, damit ein Tipp darauf nicht die Kamera bewegt */}
+      <div
+        className="absolute"
+        style={{ right: 8, bottom: 8, transform: `scale(${uiScale})`, transformOrigin: "bottom right" }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerMove={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+      >
+        <div className="relative">
+          <button
+            aria-label="Seitenmenü"
+            onClick={() => { setMenuOpen((v) => !v); setFormatOpen(false); }}
+            className="h-10 w-10 rounded-full
+                       bg-gradient-to-br from-gray-200/70 via-gray-100/50 to-gray-50/30
+                       border border-black/40 backdrop-blur-md
+                       hover:bg-gray-200/80 active:bg-gray-300/80 transition"
+          />
+
+          {menuOpen && (
+            <div
+              className="absolute right-0 bottom-12 min-w-[240px] rounded-2xl overflow-hidden
+                         border border-black/30 shadow-xl
+                         bg-gradient-to-br from-gray-100/95 via-gray-200/90 to-gray-100/85
+                         backdrop-blur-md text-gray-900 text-sm"
+              role="menu"
+            >
+              <div className="px-3 py-2 font-medium flex items-center justify-between">
+                <span>Seite {index + 1}</span>
+                <span className="text-[11px] text-gray-600">
+                  {page.format} • {page.orientation === "portrait" ? "Hoch" : "Quer"}
+                </span>
+              </div>
+              <div className="h-px bg-black/10" />
+
+              <button onClick={() => setFormatOpen((v) => !v)} className="w-full text-left px-3 py-2 hover:bg-gray-100/70">
+                Seitengrösse ändern
+              </button>
+
+              {formatOpen && (
+                <div className="px-3 pb-2 pt-1">
+                  <div className="text-xs text-gray-600 mb-1">Format</div>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {(["A4", "A3", "A2", "A1"] as Format[]).map((fmt) => (
+                      <button
+                        key={fmt}
+                        onClick={() => onChangeFormat(fmt)}
+                        className={
+                          "px-2 py-1 rounded-lg border text-sm " +
+                          (page.format === fmt ? "border-black/50 bg-white" : "border-black/20 bg-white/70 hover:bg-white")
+                        }
+                      >
+                        {fmt}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="text-xs text-gray-600 mb-1">Ausrichtung</div>
+                  <div className="flex gap-1.5">
+                    {(["portrait", "landscape"] as Orientation[]).map((ori) => (
+                      <button
+                        key={ori}
+                        onClick={() => onChangeOrientation(ori)}
+                        className={
+                          "px-2 py-1 rounded-lg border text-sm " +
+                          (page.orientation === ori ? "border-black/50 bg-white" : "border-black/20 bg-white/70 hover:bg-white")
+                        }
+                      >
+                        {ori === "portrait" ? "Hoch" : "Quer"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={() => { onAddBelow(); setMenuOpen(false); }}
+                className="w-full text-left px-3 py-2 hover:bg-gray-100/70"
+              >
+                + Seite hinzufügen
+              </button>
+
+              <button
+                onClick={() => { onDuplicateBelow(); setMenuOpen(false); }}
+                className="w-full text-left px-3 py-2 hover:bg-gray-100/70"
+              >
+                Seite duplizieren
+              </button>
+
+              <button
+                onClick={async () => { await copyPageToClipboard(); setMenuOpen(false); }}
+                className="w-full text-left px-3 py-2 hover:bg-gray-100/70"
+              >
+                Seite kopieren
+              </button>
+
+              <div className="h-px bg-black/10" />
+              <button
+                onClick={() => { onDelete(); setMenuOpen(false); }}
+                className="w-full text-left px-3 py-2 text-red-600 hover:bg-gray-100/70"
+              >
+                Seite löschen
+              </button>
+            </div>
+          )}
+
+          {info && (
+            <div className="absolute right-0 bottom-12 whitespace-nowrap px-3 py-1.5 rounded-lg bg-black/75 text-white text-xs shadow">
+              {info}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   UI-Atome
    ========================= */
 
 function ToolBtn({
@@ -760,7 +1337,7 @@ function ToolBtn({
       onClick={onClick}
       title={title}
       className={
-        "rounded-xl border px-3 py-2 text-sm transition shadow-sm backdrop-blur-md " +
+        "shrink-0 rounded-xl border px-3 py-2 text-sm transition shadow-sm backdrop-blur-md " +
         (active
           ? "border-white/60 text-white bg-gradient-to-br from-white/25 via-white/15 to-white/10"
           : "border-white/25 text-white bg-gradient-to-br from-white/10 via-white/5 to-white/0 hover:bg-white/10")
@@ -959,447 +1536,6 @@ function InlineSize({
 }
 
 /* =========================
-   A-Seite (Canvas-Platzhalter + Seitenmenü)
-   ========================= */
-
-// Kürzester Abstand von Punkt p zu Liniensegment a-b
-function distToSegment(p: StrokePoint, a: StrokePoint, b: StrokePoint) {
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
-  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
-}
-function strokeHit(stroke: Stroke, p: StrokePoint, radius: number) {
-  if (stroke.points.length < 2) {
-    return stroke.points.some((sp) => Math.hypot(p.x - sp.x, p.y - sp.y) <= radius);
-  }
-  for (let i = 1; i < stroke.points.length; i++) {
-    if (distToSegment(p, stroke.points[i - 1], stroke.points[i]) <= radius) return true;
-  }
-  return false;
-}
-
-function A4LikePage({
-  pageIndex,
-  page,
-  scale,
-  tool,
-  eraserMode,
-  color,
-  width,
-  onAddBelow,
-  onDuplicateBelow,
-  onDelete,
-  onChangeFormat,
-  onChangeOrientation,
-  onAddStroke,
-  onEraseStrokes,
-  onNavDown,
-  onNavMove,
-  onNavUp,
-}: {
-  pageIndex: number;
-  page: { id: string; order: number; format: Format; orientation: Orientation; strokes: Stroke[] };
-  scale: number;
-  tool: Tool;
-  eraserMode: "pixel" | "linie";
-  color: string;
-  width: number;
-  onAddBelow: () => void;
-  onDuplicateBelow: () => void;
-  onDelete: () => void;
-  onChangeFormat: (fmt: Format) => void;
-  onChangeOrientation: (ori: Orientation) => void;
-  onAddStroke: (stroke: Stroke) => void;
-  onEraseStrokes: (removed: { stroke: Stroke; index: number }[]) => void;
-  onNavDown: (e: React.PointerEvent) => void;
-  onNavMove: (e: React.PointerEvent) => void;
-  onNavUp: (e: React.PointerEvent) => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [formatOpen, setFormatOpen] = useState(false);
-  const [info, setInfo] = useState<string | null>(null);
-  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
-  const drawingRef = useRef(false);
-  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
-  const currentStrokeRef = useRef<StrokePoint[]>([]);
-  const currentStyleRef = useRef<{ color: string; width: number; tool: Tool }>({ color, width, tool: "pen" });
-  // Linien-Radierer: verbleibende Striche mit Original-Index (für Undo), Treffer dieser Geste
-  const eraseWorkingRef = useRef<{ stroke: Stroke; index: number }[] | null>(null);
-  const eraseHitsRef = useRef<{ stroke: Stroke; index: number }[]>([]);
-
-  const drawStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke) => {
-    if (stroke.points.length < 2) return;
-    ctx.globalCompositeOperation = stroke.tool === "eraser" ? "destination-out" : "source-over";
-    ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.width;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    stroke.points.forEach((p, i) => {
-      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
-    });
-    ctx.stroke();
-  };
-
-  const { w, h } = sizeFor(page.format, page.orientation);
-  const scaledW = Math.round(w * scale);
-  const scaledH = Math.round(h * scale);
-
-  // Weiss füllen, Striche replayen (Marker immer unter Pen, sonst "fogt" ein nachträglicher
-  // Marker die Pen-Striche ein). Wiederverwendet vom Redraw-Effect und vom Linien-Radierer.
-  const redrawWith = useCallback((strokesToUse: Stroke[]) => {
-    const cvs = canvasRef.current;
-    const ctx = cvs?.getContext("2d");
-    if (!cvs || !ctx) return;
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, w, h);
-    const ordered = [
-      ...strokesToUse.filter((s) => s.tool === "marker"),
-      ...strokesToUse.filter((s) => s.tool !== "marker"),
-    ];
-    ordered.forEach((s) => drawStroke(ctx, s));
-  }, [w, h]);
-
-  // Seite neu aufbauen: Auflösung an Zoom/Displaydichte anpassen (sonst wird's beim Reinzoomen unscharf)
-  useEffect(() => {
-    const cvs = canvasRef.current;
-    if (!cvs) return;
-    const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-    const resFactor = clamp(1, 3, scale * dpr);
-    cvs.width = Math.round(w * resFactor);
-    cvs.height = Math.round(h * resFactor);
-    const ctx = cvs.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(resFactor, 0, 0, resFactor, 0, 0);
-    redrawWith(page.strokes);
-  }, [page.format, page.orientation, page.strokes, scale, w, h, redrawWith]);
-
-  const handleCanvasDown = () => {
-    if (menuOpen || formatOpen) {
-      setMenuOpen(false);
-      setFormatOpen(false);
-    }
-  };
-
-  // Liefert die Position in den gleichen absoluten Basis-Pixeln, in denen Striche gespeichert
-  // werden (unabhängig von Zoom/Displaydichte, die nur die Canvas-Auflösung betreffen)
-  const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const cvs = canvasRef.current!;
-    const rect = cvs.getBoundingClientRect();
-    return {
-      x: ((e.clientX - rect.left) / rect.width) * w,
-      y: ((e.clientY - rect.top) / rect.height) * h,
-    };
-  };
-
-  const isLineEraser = tool === "eraser" && eraserMode === "linie";
-
-  // Trifft der Punkt einen der noch verbliebenen Striche, wird er (samt Original-Index)
-  // aus dem Arbeits-Set entfernt und in den Treffern dieser Geste gesammelt
-  const applyLineErase = (point: StrokePoint) => {
-    const current = eraseWorkingRef.current;
-    if (!current) return;
-    const hits = current.filter(({ stroke }) => strokeHit(stroke, point, width / 2));
-    if (hits.length === 0) return;
-    const hitSet = new Set(hits);
-    const remaining = current.filter((entry) => !hitSet.has(entry));
-    eraseHitsRef.current = [...eraseHitsRef.current, ...hits];
-    eraseWorkingRef.current = remaining;
-    redrawWith(remaining.map((entry) => entry.stroke));
-  };
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "touch") {
-      // Touch ist für Navigation reserviert. Direkt aufrufen statt aufs Hochblubbern zu hoffen
-      // (auf iPadOS unzuverlässig durch touch-action:none), stopPropagation gegen Doppelverarbeitung
-      e.stopPropagation();
-      onNavDown(e);
-      return;
-    }
-    const cvs = canvasRef.current;
-    if (!cvs) return;
-    cvs.setPointerCapture(e.pointerId);
-    drawingRef.current = true;
-    const point = getCanvasPoint(e);
-    lastPointRef.current = point;
-
-    if (isLineEraser) {
-      eraseWorkingRef.current = page.strokes.map((stroke, index) => ({ stroke, index }));
-      eraseHitsRef.current = [];
-      applyLineErase(point);
-      return;
-    }
-
-    currentStyleRef.current = { color, width, tool };
-    currentStrokeRef.current = [point];
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "touch") {
-      e.stopPropagation();
-      onNavMove(e);
-      return;
-    }
-    const point = getCanvasPoint(e);
-    if (tool === "eraser") setHoverPos(point);
-    else if (hoverPos) setHoverPos(null);
-
-    if (!drawingRef.current || !lastPointRef.current) return;
-
-    if (isLineEraser) {
-      applyLineErase(point);
-      lastPointRef.current = point;
-      return;
-    }
-
-    const cvs = canvasRef.current;
-    const ctx = cvs?.getContext("2d");
-    if (!cvs || !ctx) return;
-    ctx.globalCompositeOperation = currentStyleRef.current.tool === "eraser" ? "destination-out" : "source-over";
-    ctx.strokeStyle = currentStyleRef.current.color;
-    ctx.lineWidth = currentStyleRef.current.width;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.beginPath();
-    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
-    ctx.lineTo(point.x, point.y);
-    ctx.stroke();
-    lastPointRef.current = point;
-    currentStrokeRef.current.push(point);
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === "touch") {
-      e.stopPropagation();
-      onNavUp(e);
-      return;
-    }
-
-    drawingRef.current = false;
-    lastPointRef.current = null;
-
-    if (isLineEraser) {
-      if (eraseHitsRef.current.length > 0) onEraseStrokes(eraseHitsRef.current);
-      eraseWorkingRef.current = null;
-      eraseHitsRef.current = [];
-      return;
-    }
-
-    if (currentStrokeRef.current.length > 1) {
-      onAddStroke({ points: currentStrokeRef.current, ...currentStyleRef.current });
-    }
-    currentStrokeRef.current = [];
-  };
-
-  const handlePointerLeave = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    handlePointerUp(e);
-    setHoverPos(null);
-  };
-
-  const copyPageToClipboard = async () => {
-    try {
-      const cvs = canvasRef.current;
-      if (!cvs) return;
-      const blob: Blob = await new Promise((res, rej) =>
-        cvs.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/png")
-      );
-      // @ts-ignore
-      if (navigator.clipboard && (window as any).ClipboardItem) {
-        // @ts-ignore
-        const item = new (window as any).ClipboardItem({ "image/png": blob });
-        await navigator.clipboard.write([item]);
-        setInfo("Seite als PNG kopiert.");
-      } else {
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-        setInfo("PNG in neuem Tab geöffnet.");
-      }
-    } catch {
-      setInfo("Kopieren nicht möglich.");
-    } finally {
-      setTimeout(() => setInfo(null), 2200);
-    }
-  };
-
-  return (
-    <div className="w-full flex justify-center">
-      <div
-        className="relative"
-        style={{ width: `${scaledW}px`, height: `${scaledH}px`, marginBottom: "16px" }}
-        onMouseDown={handleCanvasDown}
-        onTouchStart={handleCanvasDown}
-      >
-        {/* dunkler Teppich */}
-        <div
-          className="absolute"
-          style={{
-            top: `calc(-6px * ${scale})`,
-            left: `calc(-6px * ${scale})`,
-            right: `calc(-6px * ${scale})`,
-            bottom: `calc(-6px * ${scale})`,
-            borderRadius: `${12 * scale}px`,
-            background: "rgba(31,41,55,0.4)",
-          }}
-        />
-
-        {/* Papier: CSS-Grösse wächst direkt mit dem Zoom mit (kein transform:scale mehr),
-            sonst würde ein bereits fertig gerastertes Bild nachträglich hochskaliert und unscharf */}
-        <div className="absolute top-0 left-0" style={{ width: scaledW, height: scaledH }}>
-          <canvas
-            ref={canvasRef}
-            className="relative z-10 select-none touch-none bg-white rounded-xl ring-1 ring-black/20"
-            style={{
-              width: scaledW,
-              height: scaledH,
-              cursor: tool === "eraser" ? "none" : "crosshair",
-              touchAction: "none",
-              WebkitTouchCallout: "none",
-              WebkitUserSelect: "none",
-            }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerLeave}
-            onPointerCancel={handlePointerLeave}
-          />
-          {tool === "eraser" && hoverPos && (
-            <div
-              className="absolute z-20 rounded-full border-2 border-black/70 bg-white/20 pointer-events-none"
-              style={{
-                left: hoverPos.x * scale - (width * scale) / 2,
-                top: hoverPos.y * scale - (width * scale) / 2,
-                width: width * scale,
-                height: width * scale,
-              }}
-            />
-          )}
-        </div>
-
-        {/* Seitenzahl */}
-        <div className="absolute -left-12 top-2 text-xs text-gray-400">
-          Seite {pageIndex + 1}
-        </div>
-
-        {/* Seitenmenü-Button */}
-        <button
-          aria-label="Seitenmenü"
-          onClick={(e) => {
-            e.stopPropagation();
-            setMenuOpen((v) => !v);
-            setFormatOpen(false);
-          }}
-          className="absolute z-30 h-10 w-10 rounded-full
-                     bg-gradient-to-br from-gray-200/50 via-gray-100/30 to-gray-50/10
-                     border border-black/40 backdrop-blur-md
-                     hover:bg-gray-200/60 active:bg-gray-300/60 transition"
-          style={{ right: 8, bottom: 8 }}
-        />
-
-        {/* Hauptmenü */}
-        {menuOpen && (
-          <div
-            className="absolute z-40 min-w=[240px] rounded-2xl overflow-hidden
-                       border border-black/30 shadow-xl
-                       bg-gradient-to-br from-gray-100/85 via-gray-200/70 to-gray-100/50
-                       backdrop-blur-md text-gray-900 text-sm"
-            style={{ right: 8, bottom: 48 }}
-            role="menu"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="px-3 py-2 font-medium flex items-center justify-between">
-              <span>Seite {pageIndex + 1}</span>
-              <span className="text-[11px] text-gray-600">
-                {page.format} • {page.orientation === "portrait" ? "Hoch" : "Quer"}
-              </span>
-            </div>
-            <div className="h-px bg-black/10" />
-
-            <button onClick={() => setFormatOpen((v) => !v)} className="w-full text-left px-3 py-2 hover:bg-gray-100/70">
-              Seitengröße ändern
-            </button>
-
-            {formatOpen && (
-              <div className="px-3 pb-2 pt-1">
-                <div className="text-xs text-gray-600 mb-1">Format</div>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {(["A4", "A3", "A2", "A1"] as Format[]).map((fmt) => (
-                    <button
-                      key={fmt}
-                      onClick={() => onChangeFormat(fmt)}
-                      className={
-                        "px-2 py-1 rounded-lg border text-sm " +
-                        (page.format === fmt ? "border-black/50 bg-white" : "border-black/20 bg-white/70 hover:bg-white")
-                      }
-                    >
-                      {fmt}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="text-xs text-gray-600 mb-1">Ausrichtung</div>
-                <div className="flex gap-1.5">
-                  {(["portrait", "landscape"] as Orientation[]).map((ori) => (
-                    <button
-                      key={ori}
-                      onClick={() => onChangeOrientation(ori)}
-                      className={
-                        "px-2 py-1 rounded-lg border text-sm " +
-                        (page.orientation === ori ? "border-black/50 bg-white" : "border-black/20 bg-white/70 hover:bg-white")
-                      }
-                    >
-                      {ori === "portrait" ? "Hoch" : "Quer"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={() => { onAddBelow(); setMenuOpen(false); }}
-              className="w-full text-left px-3 py-2 hover:bg-gray-100/70"
-            >
-              + Seite hinzufügen
-            </button>
-
-            <button
-              onClick={() => { onDuplicateBelow(); setMenuOpen(false); }}
-              className="w-full text-left px-3 py-2 hover:bg-gray-100/70"
-            >
-              Seite duplizieren
-            </button>
-
-            <button
-              onClick={async () => { await copyPageToClipboard(); setMenuOpen(false); }}
-              className="w-full text-left px-3 py-2 hover:bg-gray-100/70"
-            >
-              Seite kopieren
-            </button>
-
-            <div className="h-px bg-black/10" />
-            <button
-              onClick={() => { onDelete(); setMenuOpen(false); }}
-              className="w-full text-left px-3 py-2 text-red-600 hover:bg-gray-100/70"
-            >
-              Seite löschen
-            </button>
-          </div>
-        )}
-
-        {info && (
-          <div className="absolute z-40 bottom-12 right-8 px-3 py-1.5 rounded-lg bg-black/75 text-white text-xs shadow">
-            {info}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* =========================
    Fallback „keine Seiten“
    ========================= */
 
@@ -1425,24 +1561,16 @@ function NoPagesFallback({ uid, docId, debugMsg }: { uid: string; docId: string;
               const existing = await getDocs(coll);
               if (existing.empty) {
                 const batch = writeBatch(db);
-                const p0 = doc(coll);
-                const p1 = doc(coll);
-                batch.set(p0, {
-                  uid,
-                  order: 0,
-                  format: "A4",
-                  orientation: "portrait",
-                  createdAt: serverTimestamp(),
-                  createdAtClient: Date.now(),
-                } as PageDoc);
-                batch.set(p1, {
-                  uid,
-                  order: 1,
-                  format: "A4",
-                  orientation: "portrait",
-                  createdAt: serverTimestamp(),
-                  createdAtClient: Date.now(),
-                } as PageDoc);
+                [0, 1].forEach((order) => {
+                  batch.set(doc(coll), {
+                    uid,
+                    order,
+                    format: "A4",
+                    orientation: "portrait",
+                    createdAt: serverTimestamp(),
+                    createdAtClient: Date.now(),
+                  } as PageDoc);
+                });
                 await batch.commit();
               }
             } catch (e) {
@@ -1459,7 +1587,7 @@ function NoPagesFallback({ uid, docId, debugMsg }: { uid: string; docId: string;
 }
 
 /* =========================
-   Helpers
+   Farb-Helfer
    ========================= */
 
 function stripAlpha(hex: string) {
