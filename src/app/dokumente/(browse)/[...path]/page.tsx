@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
@@ -26,6 +27,7 @@ import DokumenteHudStyles from "@/components/dokumente/HudStyles";
 import { uploadDocumentFile, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
 import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
+import { usePreviewPref } from "@/components/dokumente/usePreviewPref";
 
 /* ======================
    Page
@@ -74,6 +76,9 @@ export default function AnyDepthFolderPage() {
 
   // UI: Ordner-Download
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
+
+  // UI: Bild-Vorschau an/aus
+  const { showPreview, setShowPreview } = usePreviewPref(uid);
 
   // ----- Laden: Unterordner -----
   useEffect(() => {
@@ -504,6 +509,17 @@ export default function AnyDepthFolderPage() {
             >
               {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Datei hochladen"}
             </button>
+
+            {/* Bild-Vorschau an/aus */}
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className={`dhud-btn dhud-toggle ${showPreview ? "dhud-toggle-on" : ""}`}
+              disabled={!uid}
+              title="Bild-Vorschau in den Kacheln an/aus"
+            >
+              {showPreview ? <Eye size={14} className="inline -mt-0.5 mr-1.5" /> : <EyeOff size={14} className="inline -mt-0.5 mr-1.5" />}
+              Vorschau
+            </button>
           </div>
         </div>
 
@@ -555,7 +571,7 @@ export default function AnyDepthFolderPage() {
                 <div key={`d-${it.doc.id}-${idx}`} className="flex flex-col items-stretch gap-2">
                   {/* Canvas-Dokumente: absoluter Link zur Editor-Route (nie vom Catch-All gefressen).
                       Dateien: DocumentTile oeffnet die Datei direkt. */}
-                  <DocumentTile doc={it.doc} />
+                  <DocumentTile doc={it.doc} showPreview={showPreview} />
                   <ItemNameMenu
                     name={it.doc.name}
                     color={it.doc.color ?? "blue"}

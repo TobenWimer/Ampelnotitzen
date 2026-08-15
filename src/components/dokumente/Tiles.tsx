@@ -42,27 +42,39 @@ export function FolderTile({ href, name, color }: { href: string; name: string; 
 }
 
 // Zeigt gezeichnete Dokumente (führt in den Editor) und hochgeladene Dateien
-// (öffnet/lädt die Datei direkt) mit passendem Icon in derselben Kachel-Optik
-export function DocumentTile({ doc }: { doc: DocItem }) {
+// (öffnet/lädt die Datei direkt) mit passendem Icon in derselben Kachel-Optik.
+// showPreview: zeigt bei Bildern eine echte Thumbnail-Vorschau statt des Icons
+export function DocumentTile({ doc, showPreview }: { doc: DocItem; showPreview?: boolean }) {
   const glow = hudColor(doc.color);
   const isFile = doc.docKind === "file";
-  const Icon = isFile ? (doc.mimeType?.startsWith("image/") ? ImageIcon : FileIcon) : FileText;
+  const isImage = isFile && !!doc.mimeType?.startsWith("image/");
+  const Icon = isFile ? (isImage ? ImageIcon : FileIcon) : FileText;
   const ext = isFile ? fileExt(doc.name) : null;
 
   const inner = (
     <>
       <Corners />
-      <div className="relative z-10 h-full flex flex-col items-center justify-center gap-1.5">
-        <Icon size={54} strokeWidth={1.4} style={{ color: glow, filter: `drop-shadow(0 0 10px ${glow}aa)` }} />
-        {ext && (
-          <span
-            className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded"
-            style={{ color: glow, border: `1px solid ${glow}66`, background: `${glow}1a` }}
-          >
-            {ext}
-          </span>
-        )}
-      </div>
+      {isImage && showPreview && doc.downloadURL ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={doc.downloadURL}
+          alt={doc.name}
+          loading="lazy"
+          className="relative z-10 h-full w-full object-cover"
+        />
+      ) : (
+        <div className="relative z-10 h-full flex flex-col items-center justify-center gap-1.5">
+          <Icon size={54} strokeWidth={1.4} style={{ color: glow, filter: `drop-shadow(0 0 10px ${glow}aa)` }} />
+          {ext && (
+            <span
+              className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded"
+              style={{ color: glow, border: `1px solid ${glow}66`, background: `${glow}1a` }}
+            >
+              {ext}
+            </span>
+          )}
+        </div>
+      )}
       <span className="sr-only">{doc.name}</span>
     </>
   );

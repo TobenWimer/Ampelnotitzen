@@ -50,6 +50,7 @@ export default function DokumenteHudStyles() {
       }
       .dhud-corner {
         position: absolute;
+        z-index: 20;
         width: 10px;
         height: 10px;
         border-color: color-mix(in srgb, var(--glow) 70%, transparent);
@@ -156,6 +157,28 @@ export default function DokumenteHudStyles() {
         border-color: rgba(244,63,94,0.7);
         box-shadow: 0 0 14px rgba(244,63,94,0.4);
         color: #fecdd3;
+      }
+      .dhud-toggle {
+        position: relative;
+        border-color: rgba(148,163,184,0.3);
+        color: #a5f3fc;
+        background: transparent;
+      }
+      .dhud-toggle:hover {
+        border-color: rgba(251,191,36,0.5);
+        color: #fef3c7;
+      }
+      .dhud-toggle-on {
+        border-color: rgba(251,191,36,0.8);
+        background: linear-gradient(135deg, rgba(251,191,36,0.28), rgba(251,191,36,0.06));
+        color: #fef3c7;
+        text-shadow: 0 0 8px rgba(251,191,36,0.7);
+        box-shadow: 0 0 16px rgba(251,191,36,0.4), inset 0 0 12px rgba(251,191,36,0.08);
+        animation: dhud-toggle-pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes dhud-toggle-pulse {
+        0%, 100% { box-shadow: 0 0 14px rgba(251,191,36,0.35), inset 0 0 10px rgba(251,191,36,0.06); }
+        50% { box-shadow: 0 0 24px rgba(251,191,36,0.6), inset 0 0 16px rgba(251,191,36,0.14); }
       }
       .dhud-input {
         background: rgba(0,0,0,0.4);

@@ -162,5 +162,12 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && authUid() == userId;
     }
 
+    /* =========================
+       Dokumente-Praeferenzen (z.B. Bild-Vorschau an/aus)
+       ========================= */
+    match /dokumentePrefs/{userId} {
+      allow read, write: if isSignedIn() && authUid() == userId;
+    }
+
   }
 }
