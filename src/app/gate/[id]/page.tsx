@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { File as FileIcon, ChevronDown, ShieldCheck } from "lucide-react";
-import { loadGate, isGateExpired, type Gate } from "@/lib/gate";
+import { File as FileIcon, ShieldCheck, Download, FileArchive, Share2 } from "lucide-react";
+import { subscribeGate, registerGateDownload, isGateExpired, type Gate } from "@/lib/gate";
 import { downloadFileFromUrl } from "@/lib/download";
 import { downloadAllFiles, downloadFilesAsZip, shareFiles, canShareFiles } from "@/lib/shareFiles";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
@@ -33,63 +33,47 @@ export default function GatePage() {
   const [gate, setGate] = useState<Gate | null>(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<number | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [, forceTick] = useState(0);
 
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
+  // Live an das Gate gehaengt: schliesst der Ersteller es oder laeuft es ab, verschwindet
+  // die Seite sofort - ohne dass der Empfaenger neu laden muss
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const g = await loadGate(gateId);
-      if (cancelled) return;
+    const unsub = subscribeGate(gateId, (g) => {
       setGate(g);
       setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    });
+    return () => unsub();
   }, [gateId]);
 
-  // Restlaufzeit mitlaufen lassen und das Gate schliessen, sobald sie abgelaufen ist
+  // Restlaufzeit mitlaufen lassen und lokal dichtmachen, sobald sie abgelaufen ist
   useEffect(() => {
     const t = setInterval(() => {
       forceTick((n) => n + 1);
       setGate((g) => (g && isGateExpired(g) ? null : g));
-    }, 10000);
+    }, 5000);
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onOutside = (e: Event) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onOutside);
-    document.addEventListener("touchstart", onOutside);
-    return () => {
-      document.removeEventListener("mousedown", onOutside);
-      document.removeEventListener("touchstart", onOutside);
-    };
-  }, [menuOpen]);
-
-  const runAction = useCallback(async (label: string, fn: (onProgress: (p: number) => void) => Promise<void>) => {
-    setProgress(0);
-    setMenuOpen(false);
-    try {
-      await fn(setProgress);
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return; // Teilen abgebrochen
-      if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
-        alert("Dieses Gerät unterstützt das Teilen von Dateien nicht. Bitte herunterladen.");
-        return;
+  const runAction = useCallback(
+    async (label: string, fn: (onProgress: (p: number) => void) => Promise<void>) => {
+      setProgress(0);
+      try {
+        await fn(setProgress);
+        registerGateDownload(gateId); // Ersteller sieht, dass abgeholt wurde
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return; // Teilen abgebrochen
+        if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
+          alert("Dieses Gerät unterstützt das Teilen von Dateien nicht. Bitte herunterladen.");
+          return;
+        }
+        console.error(`${label} fehlgeschlagen:`, err);
+        alert(`${label} fehlgeschlagen.`);
+      } finally {
+        setProgress(null);
       }
-      console.error(`${label} fehlgeschlagen:`, err);
-      alert(`${label} fehlgeschlagen.`);
-    } finally {
-      setProgress(null);
-    }
-  }, []);
+    },
+    [gateId]
+  );
 
   const shell = (children: React.ReactNode) => (
     <div className="min-h-screen hud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono">
@@ -146,52 +130,56 @@ export default function GatePage() {
       </div>
 
       {gate.note && (
-        <div className="hud-panel rounded-xl p-3 mb-4">
-          <p className="relative z-10 text-xs text-cyan-100/80 whitespace-pre-wrap break-words">{gate.note}</p>
-        </div>
+        <p className="text-lg md:text-xl text-cyan-100/90 leading-relaxed whitespace-pre-wrap break-words mb-6">
+          {gate.note}
+        </p>
       )}
 
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="relative" ref={menuRef}>
+      {/* Aktionen bewusst direkt sichtbar statt im Dropdown - Empfaenger sollen ohne
+          Sucherei an die Dateien kommen */}
+      <div className="flex items-center gap-2 mb-5 flex-wrap">
+        <button
+          className="hud-btn hud-btn-primary inline-flex items-center gap-1.5"
+          disabled={progress !== null}
+          onClick={() =>
+            files.length === 1
+              ? runAction("Download", (p) => downloadFileFromUrl(files[0].downloadURL, files[0].fileName, p))
+              : runAction("Download", (p) => downloadAllFiles(files, p))
+          }
+        >
+          <Download size={13} />
+          {files.length === 1 ? "Herunterladen" : "Alle einzeln"}
+        </button>
+
+        <button
+          className="hud-btn hud-btn-outline inline-flex items-center gap-1.5"
+          disabled={progress !== null}
+          onClick={() => runAction("Download", (p) => downloadFilesAsZip(files, "intertransfer", p))}
+        >
+          <FileArchive size={13} />
+          Als ZIP
+        </button>
+
+        {canShareFiles() && (
           <button
-            onClick={() => setMenuOpen((v) => !v)}
-            className="hud-btn hud-btn-primary inline-flex items-center gap-1.5"
+            className="hud-btn inline-flex items-center gap-1.5"
             disabled={progress !== null}
+            style={{
+              borderColor: "rgba(74,222,128,0.6)",
+              background: "linear-gradient(135deg, rgba(74,222,128,0.28), rgba(74,222,128,0.08))",
+              color: "#dcfce7",
+              textShadow: "0 0 8px rgba(74,222,128,0.6)",
+            }}
+            onClick={() => runAction("Teilen", (p) => shareFiles(files, p))}
           >
-            {progress !== null ? `Läuft… ${progress}%` : "Empfangen"}
-            <ChevronDown size={13} />
+            <Share2 size={13} />
+            Teilen
           </button>
+        )}
 
-          {menuOpen && (
-            <div role="menu" className="hud-menu absolute left-0 top-full mt-2 z-50 min-w-56 rounded-xl overflow-hidden">
-              {files.length === 1 ? (
-                <button
-                  className="hud-menu-item"
-                  onClick={() => runAction("Download", (p) => downloadFileFromUrl(files[0].downloadURL, files[0].fileName, p))}
-                >
-                  Herunterladen
-                </button>
-              ) : (
-                <button className="hud-menu-item" onClick={() => runAction("Download", (p) => downloadAllFiles(files, p))}>
-                  Alle einzeln herunterladen
-                </button>
-              )}
-
-              <button
-                className="hud-menu-item"
-                onClick={() => runAction("Download", (p) => downloadFilesAsZip(files, "intertransfer", p))}
-              >
-                Als ZIP herunterladen
-              </button>
-
-              {canShareFiles() && (
-                <button className="hud-menu-item" onClick={() => runAction("Teilen", (p) => shareFiles(files, p))}>
-                  Teilen{files.some((f) => f.mimeType.startsWith("image/")) ? " (z.B. in die Galerie)" : ""}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        {progress !== null && (
+          <span className="text-[11px] tracking-widest uppercase text-cyan-300/70">Läuft… {progress}%</span>
+        )}
       </div>
 
       <div className="hud-panel rounded-2xl p-5">

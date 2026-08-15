@@ -178,6 +178,9 @@ service cloud.firestore {
          Besitzer darf auch abgelaufene lesen, um sie aufraeumen zu koennen.
        - list: nur der Besitzer und nur die eigenen. Damit kann niemand die
          Sammlung durchblaettern und fremde Gates einsammeln.
+       - update: der Besitzer frei; Empfaenger duerfen ausschliesslich den
+         Abhol-Zaehler um genau 1 erhoehen (Statusanzeige beim Ersteller).
+         Mehr als einen falschen Zaehlerstand kann damit niemand anrichten.
        ========================= */
     match /gates/{gateId} {
       allow get: if (resource.data.expiresAt > request.time.toMillis())
@@ -186,9 +189,15 @@ service cloud.firestore {
       allow create: if isSignedIn()
                     && authUid() == request.resource.data.ownerUid
                     && request.resource.data.keys().hasOnly([
-                      'ownerUid','files','createdAt','expiresAt','note'
+                      'ownerUid','files','createdAt','expiresAt','note','downloadCount'
                     ]);
-      allow update, delete: if isSignedIn() && authUid() == resource.data.ownerUid;
+      allow update: if (isSignedIn() && authUid() == resource.data.ownerUid)
+                    || (
+                         resource.data.expiresAt > request.time.toMillis()
+                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['downloadCount'])
+                         && request.resource.data.downloadCount == resource.data.downloadCount + 1
+                       );
+      allow delete: if isSignedIn() && authUid() == resource.data.ownerUid;
     }
 
   }

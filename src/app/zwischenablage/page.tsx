@@ -390,7 +390,7 @@ export default function ZwischenablagePage() {
 
                   {canShareFiles() && (
                     <button className="hud-menu-item" onClick={() => runFileAction("Teilen", (p) => shareFiles(files, p))}>
-                      Teilen{files.some((f) => f.mimeType.startsWith("image/")) ? " (z.B. in die Galerie)" : ""}
+                      Teilen
                     </button>
                   )}
                 </div>

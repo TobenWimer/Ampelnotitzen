@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, increment, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import type { ClipboardFile } from "@/lib/clipboard";
@@ -16,9 +16,12 @@ export type Gate = {
   createdAt: number;
   expiresAt: number;
   note: string;
+  downloadCount: number;
 };
 
 export const GATE_DURATIONS = [
+  { label: "3 Minuten", ms: 3 * 60 * 1000 },
+  { label: "5 Minuten", ms: 5 * 60 * 1000 },
   { label: "15 Minuten", ms: 15 * 60 * 1000 },
   { label: "1 Stunde", ms: 60 * 60 * 1000 },
   { label: "6 Stunden", ms: 6 * 60 * 60 * 1000 },
@@ -28,13 +31,10 @@ export const GATE_DURATIONS = [
 
 export const isGateExpired = (gate: Pick<Gate, "expiresAt">) => Date.now() >= gate.expiresAt;
 
-// Unrateba­re ID - sie ersetzt die Anmeldung als Zugangsschutz, darf also nicht
-// hochzaehlbar oder kurz sein
+// Unratbare ID - sie ersetzt die Anmeldung als Zugangsschutz, darf also nicht
+// hochzaehlbar oder kurz sein. 32 Zufallsbytes = 64 Hex-Zeichen (256 Bit)
 function newGateId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID().replace(/-/g, "");
-  }
-  const bytes = new Uint8Array(16);
+  const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -106,6 +106,7 @@ export async function createGate({
     createdAt: now,
     expiresAt: now + durationMs,
     note,
+    downloadCount: 0,
   };
 
   await setDoc(doc(db, "gates", gateId), {
@@ -114,30 +115,50 @@ export async function createGate({
     createdAt: gate.createdAt,
     expiresAt: gate.expiresAt,
     note: gate.note,
+    downloadCount: 0,
   });
 
   return gate;
 }
 
-// Laedt ein Gate ueber den Link. Ist es abgelaufen, verweigern bereits die Regeln den
-// Zugriff - der Fehler wird hier bewusst nicht unterschieden, damit die Seite in beiden
-// Faellen dieselbe neutrale Meldung zeigen kann
-export async function loadGate(gateId: string): Promise<Gate | null> {
+export function gateFromData(id: string, data: Record<string, unknown>): Gate {
+  return {
+    id,
+    ownerUid: (data.ownerUid as string) ?? "",
+    files: (data.files ?? []) as GateFile[],
+    createdAt: (data.createdAt as number) ?? 0,
+    expiresAt: (data.expiresAt as number) ?? 0,
+    note: (data.note as string) ?? "",
+    downloadCount: (data.downloadCount as number) ?? 0,
+  };
+}
+
+// Beobachtet ein Gate live. Wird es geschlossen (Dokument geloescht) oder laeuft es ab
+// (Regeln verweigern den Zugriff), meldet der Callback null - die Empfangsseite kann so
+// sofort dichtmachen, ohne dass jemand neu laden muss
+export function subscribeGate(gateId: string, onChange: (gate: Gate | null) => void) {
+  return onSnapshot(
+    doc(db, "gates", gateId),
+    (snap) => {
+      if (!snap.exists()) {
+        onChange(null);
+        return;
+      }
+      const gate = gateFromData(snap.id, snap.data());
+      onChange(isGateExpired(gate) ? null : gate);
+    },
+    () => onChange(null)
+  );
+}
+
+// Meldet dem Ersteller, dass gerade jemand abholt. Die Firestore-Regel laesst genau
+// diese eine Erhoehung um 1 zu und sonst nichts - mehr als einen falschen Zaehlerstand
+// kann ein Empfaenger damit nicht anrichten
+export async function registerGateDownload(gateId: string) {
   try {
-    const snap = await getDoc(doc(db, "gates", gateId));
-    if (!snap.exists()) return null;
-    const data = snap.data();
-    const gate: Gate = {
-      id: snap.id,
-      ownerUid: data.ownerUid,
-      files: (data.files ?? []) as GateFile[],
-      createdAt: data.createdAt ?? 0,
-      expiresAt: data.expiresAt ?? 0,
-      note: data.note ?? "",
-    };
-    return isGateExpired(gate) ? null : gate;
+    await updateDoc(doc(db, "gates", gateId), { downloadCount: increment(1) });
   } catch {
-    return null;
+    // nur eine Statusanzeige - Fehler duerfen den Download nicht blockieren
   }
 }
 

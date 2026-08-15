@@ -7,12 +7,14 @@ import {
   createGate,
   closeGate,
   gatesCollection,
+  gateFromData,
   gateUrl,
   gatePath,
   isGateExpired,
   GATE_DURATIONS,
   type Gate,
 } from "@/lib/gate";
+import { GateReactors, type GateStage } from "@/components/hud/GateReactors";
 
 function formatRemaining(ms: number): string {
   if (ms <= 0) return "abgelaufen";
@@ -35,7 +37,13 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
   const [note, setNote] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
   const [, forceTick] = useState(0);
+
+  // Merkt sich den zuletzt gesehenen Abhol-Zaehler, um eine neue Abholung als
+  // kurzen Statuswechsel ("Empfaenger holt ab") anzeigen zu koennen
+  const seenDownloadsRef = useRef<Record<string, number>>({});
+  const [receiving, setReceiving] = useState<{ count: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -48,18 +56,21 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
     const unsub = onSnapshot(
       qRef,
       (snap) => {
-        const raw: Gate[] = snap.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            ownerUid: data.ownerUid,
-            files: data.files ?? [],
-            createdAt: data.createdAt ?? 0,
-            expiresAt: data.expiresAt ?? 0,
-            note: data.note ?? "",
-          };
-        });
+        const raw = snap.docs.map((d) => gateFromData(d.id, d.data()));
         raw.sort((a, b) => b.createdAt - a.createdAt);
+
+        // neue Abholung erkennen -> Reaktoren kurz auf "Empfaenger holt ab" stellen
+        let fresh: number | null = null;
+        for (const g of raw) {
+          const seen = seenDownloadsRef.current[g.id];
+          if (seen !== undefined && g.downloadCount > seen) fresh = g.downloadCount;
+          seenDownloadsRef.current[g.id] = g.downloadCount;
+        }
+        if (fresh !== null) {
+          setReceiving({ count: fresh });
+          setTimeout(() => setReceiving(null), 6000);
+        }
+
         setGates(raw);
       },
       (err) => console.warn("gates error", err)
@@ -83,6 +94,10 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
     setUploadPct(0);
     try {
       await createGate({ files: pendingFiles, uid, durationMs, note: note.trim(), onProgress: setUploadPct });
+      // kurz die "Link wird erzeugt"-Stufe stehen lassen, sonst springt die Anzeige
+      // direkt von 100% auf "offen" und der Schritt ist nicht lesbar
+      setLinking(true);
+      setTimeout(() => setLinking(false), 900);
       setPendingFiles([]);
       setNote("");
       setCreating(false);
@@ -107,10 +122,29 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
 
   const handleClose = useCallback(async (gate: Gate) => {
     if (!confirm("Gate jetzt schliessen? Der Link wird sofort ungültig und die Dateien werden gelöscht.")) return;
+    // Dokument zuerst weg: die Empfangsseite haengt per onSnapshot daran und macht
+    // dadurch sofort dicht, ohne dass jemand neu laden muss
     await closeGate(gate);
   }, []);
 
   const activeGates = gates.filter((g) => !isGateExpired(g));
+
+  const stage: GateStage =
+    uploadPct !== null
+      ? { kind: "uploading", pct: uploadPct }
+      : linking
+      ? { kind: "linking" }
+      : receiving
+      ? { kind: "receiving", count: receiving.count }
+      : activeGates.length > 0
+      ? {
+          kind: "open",
+          gates: activeGates.length,
+          remainingLabel: `noch ${formatRemaining(
+            Math.max(...activeGates.map((g) => g.expiresAt)) - Date.now()
+          )}`,
+        }
+      : { kind: "idle" };
 
   return (
     <div className="zwa-panel rounded-2xl p-5 mb-6">
@@ -129,6 +163,9 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
             </button>
           )}
         </div>
+
+        {/* Doppelreaktor: zeigt Upload, Link-Erzeugung, offenes Gate und Abholungen */}
+        <GateReactors stage={stage} />
 
         {/* Neues Gate anlegen */}
         {creating && (
@@ -215,8 +252,11 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
                       {g.files.length} {g.files.length === 1 ? "Datei" : "Dateien"}
                       {g.note && <span className="text-cyan-300/40 font-normal"> · {g.note}</span>}
                     </div>
-                    <div className="text-[10px] text-amber-300/70 tracking-wide mt-0.5">
-                      noch {formatRemaining(g.expiresAt - Date.now())}
+                    <div className="text-[10px] tracking-wide mt-0.5 flex items-center gap-2 flex-wrap">
+                      <span className="text-amber-300/70">noch {formatRemaining(g.expiresAt - Date.now())}</span>
+                      <span className={g.downloadCount > 0 ? "text-emerald-300/80" : "text-cyan-300/30"}>
+                        {g.downloadCount > 0 ? `${g.downloadCount}× abgeholt` : "noch nicht abgeholt"}
+                      </span>
                     </div>
                   </div>
 
