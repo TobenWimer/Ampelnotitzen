@@ -148,11 +148,11 @@ function Header() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="relative z-10 w-full flex items-center justify-between px-6 py-4 border-b border-cyan-400/20 bg-black/20 backdrop-blur-sm">
-      <div className="flex items-center gap-4">
-        <ReactorEmblem size={52} />
+    <header className="relative z-10 w-full flex items-center justify-between px-6 py-5 border-b border-cyan-400/20 bg-black/20 backdrop-blur-sm">
+      <div className="flex items-center gap-5">
+        <ReactorEmblem size={84} />
         <div>
-          <h1 className="hud-title text-xl font-bold text-cyan-100 uppercase">OneStepBehind</h1>
+          <h1 className="hud-title text-2xl font-bold text-cyan-100 uppercase">OneStepBehind</h1>
           <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase mt-0.5">
             <span className="hud-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
             Sync aktiv
