@@ -118,6 +118,56 @@ export function PortfolioCore({
           Klick: CHF / %
         </div>
       </div>
+
+      {/* zwei kleine Sweep-Radare als Deko rechts daneben */}
+      <div className="hidden sm:flex items-center gap-3">
+        <SweepRadar color={color} durationSec={4} />
+        <SweepRadar color="#22d3ee" durationSec={6.5} reverse />
+      </div>
     </button>
+  );
+}
+
+// Kleines Radar mit umlaufendem Sweep-Keil und Blips - reine Deko, unterstreicht
+// den "Ueberwachungs"-Charakter des Trackers
+function SweepRadar({
+  color,
+  durationSec,
+  reverse = false,
+}: {
+  color: string;
+  durationSec: number;
+  reverse?: boolean;
+}) {
+  const gradId = `sweep-${color.replace("#", "")}-${durationSec}${reverse ? "r" : ""}`;
+  return (
+    <div className="relative h-14 w-14 shrink-0 opacity-80">
+      <svg viewBox="0 0 60 60" className="absolute inset-0 h-full w-full" style={{ color }}>
+        <circle cx="30" cy="30" r="28" fill="rgba(0,0,0,0.35)" stroke="currentColor" strokeWidth="0.8" opacity="0.35" />
+        <circle cx="30" cy="30" r="19" fill="none" stroke="currentColor" strokeWidth="0.6" opacity="0.22" />
+        <circle cx="30" cy="30" r="10" fill="none" stroke="currentColor" strokeWidth="0.6" opacity="0.22" />
+        <line x1="2" y1="30" x2="58" y2="30" stroke="currentColor" strokeWidth="0.5" opacity="0.18" />
+        <line x1="30" y1="2" x2="30" y2="58" stroke="currentColor" strokeWidth="0.5" opacity="0.18" />
+        {/* Blips */}
+        <circle cx="41" cy="21" r="1.6" fill="currentColor" opacity="0.75" />
+        <circle cx="22" cy="39" r="1.2" fill="currentColor" opacity="0.5" />
+      </svg>
+
+      {/* rotierender Sweep-Keil */}
+      <svg
+        viewBox="0 0 60 60"
+        className="absolute inset-0 h-full w-full"
+        style={{ animation: `hud-spin${reverse ? "-rev" : ""} ${durationSec}s linear infinite`, transformOrigin: "50% 50%" }}
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0%" stopColor={color} stopOpacity="0" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.5" />
+          </linearGradient>
+        </defs>
+        <path d="M30 30 L30 2 A28 28 0 0 1 54 16 Z" fill={`url(#${gradId})`} />
+        <line x1="30" y1="30" x2="30" y2="2" stroke={color} strokeWidth="1.2" opacity="0.9" />
+      </svg>
+    </div>
   );
 }

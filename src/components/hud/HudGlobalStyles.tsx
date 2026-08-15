@@ -178,6 +178,22 @@ export default function HudGlobalStyles() {
         0%, 100% { transform: scale(1); opacity: 1; }
         50% { transform: scale(1.12); opacity: 0.85; }
       }
+      /* vertikaler Scanner, faehrt in einer Saeule hoch und runter */
+      @keyframes hud-vscan {
+        0% { top: 100%; opacity: 0; }
+        10% { opacity: 1; }
+        50% { top: 0%; opacity: 1; }
+        90% { opacity: 1; }
+        100% { top: 100%; opacity: 0; }
+      }
+      /* horizontaler Transfer-Puls, laeuft von links nach rechts durch eine Leitung */
+      @keyframes hud-transfer {
+        0% { left: -20%; }
+        100% { left: 100%; }
+      }
+      @keyframes hud-dash-flow {
+        to { stroke-dashoffset: -100; }
+      }
     `}</style>
   );
 }

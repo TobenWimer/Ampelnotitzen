@@ -9,6 +9,8 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { CLIPBOARD_TTL_MS, isClipboardExpired, uploadClipboardFile, deleteClipboardFile, ClipboardData } from "@/lib/clipboard";
 import { downloadFileFromUrl } from "@/lib/download";
+import { TransferLine } from "@/components/hud/TransferLine";
+import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 
 function timeAgo(ts: number): string {
   const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -258,9 +260,24 @@ export default function ZwischenablagePage() {
       </header>
 
       <div className="relative z-10 flex-1 max-w-2xl w-full mx-auto px-6 py-10">
-        <p className="text-xs text-cyan-300/50 mb-6 tracking-wide">
+        <p className="text-xs text-cyan-300/50 mb-4 tracking-wide">
           &gt; Auf einem Gerät einfügen, auf jedem anderen Gerät sofort abrufbar. Text, Bilder oder Dateien.
         </p>
+
+        {/* Transfer-Leitung */}
+        <div className="mb-6">
+          <TransferLine
+            active={!!visible}
+            label={
+              visible
+                ? visible.kind === "file"
+                  ? `Datei bereit · ${remainingMin}min`
+                  : `Text bereit · ${remainingMin}min`
+                : "Leitung frei"
+            }
+            remainingFraction={remainingFraction}
+          />
+        </div>
 
         {loadError && (
           <div className="mb-4 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
@@ -385,6 +402,8 @@ export default function ZwischenablagePage() {
       </div>
 
       <HudStyles />
+      {/* zusaetzlich zum lokalen zwa-Stilsystem, da die TransferLine die hud-Klassen nutzt */}
+      <HudGlobalStyles />
     </div>
   );
 }

@@ -607,18 +607,22 @@ export default function AnyDepthFolderPage() {
         </div>
       )}
 
-      <div className="relative z-10 p-6 md:p-8 max-w-6xl mx-auto">
-        {/* Header */}
-        <header className="flex items-center justify-between mb-8 pb-4 border-b border-cyan-400/20">
+      {/* Durchgehende Header-Leiste, einheitlich mit den anderen Modulen */}
+      <header className="relative z-10 w-full flex items-center justify-between px-6 py-4 border-b border-cyan-400/20 bg-black/20 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
           <Link href="/" className="text-xs tracking-widest text-cyan-400/70 hover:text-cyan-300 transition uppercase">
-            ← Home
+            ← Zurück
           </Link>
-          <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
-            <span className="dhud-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
-            Sync aktiv
-          </span>
-        </header>
+          <span className="text-cyan-400/20">|</span>
+          <h1 className="dhud-title text-lg font-bold text-cyan-100 uppercase">Dokumente</h1>
+        </div>
+        <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
+          <span className="dhud-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
+          Sync aktiv
+        </span>
+      </header>
 
+      <div className="relative z-10 p-6 md:p-8 max-w-6xl mx-auto">
         {/* Breadcrumbs + Actions */}
         <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
           <nav className="text-xs text-cyan-300/60 tracking-wide">

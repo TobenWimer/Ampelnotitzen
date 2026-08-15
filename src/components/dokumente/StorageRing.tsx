@@ -121,6 +121,22 @@ export default function StorageRing({
         </div>
       </div>
 
+      {/* Zwei Pegel-Saeulen: links Speicherbelegung (statisch), rechts Live-Aktivitaet */}
+      <div className="flex items-end gap-1.5 shrink-0">
+        <LevelBar
+          fillPct={storagePct}
+          color="#c084fc"
+          sweeping={false}
+          label="MEM"
+        />
+        <LevelBar
+          fillPct={activity ? Math.min(100, activity.pct) : 0}
+          color={activity?.type === "download" ? "#4ade80" : "#22d3ee"}
+          sweeping={!!activity}
+          label="I/O"
+        />
+      </div>
+
       <div className="text-[10px] leading-tight tracking-wide uppercase">
         <div style={{ color }} className="font-semibold">
           {activity?.type === "upload" ? "Upload" : activity?.type === "download" ? "Download" : "Speicher"}
@@ -129,6 +145,49 @@ export default function StorageRing({
           {activity ? "läuft…" : `${formatGB(usedBytes)} / 5 GB`}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Schmale vertikale Pegel-Saeule mit Segmentlinien; bei Aktivitaet laeuft zusaetzlich
+// ein Scanner-Strich hoch und runter
+function LevelBar({
+  fillPct,
+  color,
+  sweeping,
+  label,
+}: {
+  fillPct: number;
+  color: string;
+  sweeping: boolean;
+  label: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative h-20 w-4 rounded-md border border-cyan-400/20 bg-black/40 overflow-hidden">
+        {[...Array(9)].map((_, i) => (
+          <div key={i} className="absolute left-0 right-0 h-px bg-cyan-400/10" style={{ top: `${(i + 1) * 10}%` }} />
+        ))}
+        <div
+          className="absolute left-0 right-0 bottom-0 transition-all duration-700"
+          style={{
+            height: `${Math.max(fillPct > 0 ? 4 : 0, fillPct)}%`,
+            background: `linear-gradient(to top, ${color}, ${color}33)`,
+            boxShadow: `0 0 10px ${color}88`,
+          }}
+        />
+        {sweeping && (
+          <div
+            className="absolute left-0 right-0 h-[3px]"
+            style={{
+              background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
+              boxShadow: `0 0 8px 2px ${color}`,
+              animation: "dhud-vscan 2.4s ease-in-out infinite",
+            }}
+          />
+        )}
+      </div>
+      <span className="text-[7px] tracking-widest text-cyan-300/35">{label}</span>
     </div>
   );
 }

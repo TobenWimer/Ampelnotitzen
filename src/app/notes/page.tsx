@@ -95,7 +95,8 @@ const TONE_COLORS: Record<Color, string> = {
   red: "#f87171",
 };
 
-const STACK_COL_CLASS = "space-y-3";
+// min-w-0: ohne das duerfen Grid-Spalten von langen Notiz-Woertern aufgeblaeht werden
+const STACK_COL_CLASS = "space-y-3 min-w-0";
 const STACK_HEADER_CLASS =
   "hud-panel sticky top-0 z-10 px-3 py-2 rounded-xl text-cyan-100 text-xs uppercase tracking-wider font-semibold flex items-center justify-between";
 
@@ -1068,7 +1069,7 @@ function NoteCard({
         ✖
       </button>
 
-      <div className="relative z-10 pl-3">
+      <div className="relative z-10 pl-3 min-w-0">
         {/* Inhalt / Edit */}
         {note.isEditing ? (
           <EditRow
@@ -1079,7 +1080,7 @@ function NoteCard({
         ) : (
           <div
             onClick={() => onToggleEdit(note.id)}
-            className="cursor-pointer whitespace-pre-wrap text-cyan-50/90 leading-relaxed pr-5"
+            className="cursor-pointer whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-cyan-50/90 leading-relaxed pr-5"
             title="Zum Bearbeiten klicken"
           >
             {note.text}

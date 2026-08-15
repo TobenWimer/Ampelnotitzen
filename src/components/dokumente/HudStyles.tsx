@@ -235,6 +235,14 @@ export default function DokumenteHudStyles() {
         from { transform: rotate(360deg); }
         to { transform: rotate(0deg); }
       }
+      /* vertikaler Scanner fuer die Pegel-Saeulen */
+      @keyframes dhud-vscan {
+        0% { top: 100%; opacity: 0; }
+        10% { opacity: 1; }
+        50% { top: 0%; opacity: 1; }
+        90% { opacity: 1; }
+        100% { top: 100%; opacity: 0; }
+      }
     `}</style>
   );
 }

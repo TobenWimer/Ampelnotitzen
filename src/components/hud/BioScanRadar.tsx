@@ -51,7 +51,46 @@ export function BioScanRadar({
 
   return (
     <div className="flex flex-col items-center">
-      <svg viewBox="0 0 200 200" className="w-full max-w-[320px]">
+      <svg viewBox="0 0 200 200" className="w-full max-w-[340px]">
+        <defs>
+          {/* Radial-Shading hinter dem Tacho: dunkler Kern, leuchtender Rand */}
+          <radialGradient id="bioscan-dish" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#0b2432" stopOpacity="0.95" />
+            <stop offset="62%" stopColor="#062029" stopOpacity="0.75" />
+            <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.12" />
+          </radialGradient>
+          {/* Verlauf der gescannten Flaeche */}
+          <radialGradient id="bioscan-area" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.05" />
+            <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.35" />
+          </radialGradient>
+          {/* Sweep-Keil des Scanners */}
+          <linearGradient id="bioscan-sweep" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0%" stopColor="#22d3ee" stopOpacity="0" />
+            <stop offset="100%" stopColor="#22d3ee" stopOpacity="0.28" />
+          </linearGradient>
+        </defs>
+
+        {/* Schuessel-Shading */}
+        <circle cx={CX} cy={CY} r={R_OUTER + 12} fill="url(#bioscan-dish)" />
+        <circle cx={CX} cy={CY} r={R_OUTER + 12} fill="none" stroke="rgba(34,211,238,0.2)" strokeWidth="0.8" />
+
+        {/* aeusserer Tick-Kranz, langsam gegenlaeufig rotierend */}
+        <g className="hud-ring-spin-slow-rev" style={{ transformOrigin: "100px 100px" }}>
+          {Array.from({ length: 36 }, (_, i) => i * 10).map((deg, i) => (
+            <line
+              key={deg}
+              x1={CX}
+              y1={CY - (R_OUTER + 12)}
+              x2={CX}
+              y2={CY - (R_OUTER + (i % 3 === 0 ? 5 : 8))}
+              stroke="rgba(34,211,238,0.45)"
+              strokeWidth={i % 3 === 0 ? 0.9 : 0.5}
+              transform={`rotate(${deg} ${CX} ${CY})`}
+            />
+          ))}
+        </g>
+
         {/* Gitterringe */}
         {[0.25, 0.5, 0.75, 1].map((f) => (
           <polygon
@@ -63,10 +102,16 @@ export function BioScanRadar({
           />
         ))}
 
-        {/* Speichen */}
+        {/* Speichen mit Achsen-Endkappen */}
         {axes.map((a, i) => {
           const [x, y] = pointAt(i * step, R_OUTER);
-          return <line key={a.key} x1={CX} y1={CY} x2={x} y2={y} stroke="rgba(34,211,238,0.15)" strokeWidth="0.7" />;
+          const [cx2, cy2] = pointAt(i * step, R_OUTER + 6);
+          return (
+            <g key={a.key}>
+              <line x1={CX} y1={CY} x2={x} y2={y} stroke="rgba(34,211,238,0.15)" strokeWidth="0.7" />
+              <circle cx={cx2} cy={cy2} r="1.3" fill={a.color} opacity={selectedKey === a.key ? 0.95 : 0.4} />
+            </g>
+          );
         })}
 
         {/* Neutrallinie (5 = wie gestern) */}
@@ -75,15 +120,16 @@ export function BioScanRadar({
         {/* gescannte Flaeche */}
         <polygon
           points={areaPoints}
-          fill="rgba(34,211,238,0.18)"
+          fill="url(#bioscan-area)"
           stroke="#22d3ee"
           strokeWidth="1.6"
           style={{ transition: "all 1.1s cubic-bezier(0.22,1,0.36,1)", filter: "drop-shadow(0 0 6px rgba(34,211,238,0.6))" }}
         />
 
-        {/* rotierender Scanner-Strahl */}
+        {/* rotierender Scanner-Strahl mit nachlaufendem Keil */}
         <g className="hud-ring-spin-slow" style={{ transformOrigin: "100px 100px" }}>
-          <line x1={CX} y1={CY} x2={CX} y2={CY - R_OUTER} stroke="rgba(34,211,238,0.45)" strokeWidth="1.2" />
+          <path d={`M ${CX} ${CY} L ${CX} ${CY - R_OUTER} A ${R_OUTER} ${R_OUTER} 0 0 1 ${CX + R_OUTER * 0.71} ${CY - R_OUTER * 0.71} Z`} fill="url(#bioscan-sweep)" />
+          <line x1={CX} y1={CY} x2={CX} y2={CY - R_OUTER} stroke="rgba(34,211,238,0.55)" strokeWidth="1.2" />
         </g>
 
         {/* Achsenpunkte, anklickbar */}

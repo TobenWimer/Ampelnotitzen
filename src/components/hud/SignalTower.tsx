@@ -31,8 +31,35 @@ export function SignalTower({
     return () => clearTimeout(t);
   }, []);
 
+  // Auslastung = Anteil noch offener (gelb/rot) Notizen, treibt die Saeulenhoehe
+  const load = total === 0 ? 0 : (counts.yellow + counts.red) / total;
+  const loadColor = load > 0.66 ? "#f87171" : load > 0.33 ? "#fbbf24" : "#4ade80";
+
   return (
-    <div className="hud-panel rounded-2xl p-4 inline-flex items-center gap-5">
+    <div className="hud-panel rounded-2xl p-4 inline-flex items-center gap-4">
+      {/* Auslastungs-Saeule: Fuellstand = offene Notizen, mit auf/ab fahrendem Scanner */}
+      <div className="relative z-10 h-[104px] w-6 rounded-lg border border-cyan-400/20 bg-black/40 overflow-hidden shrink-0">
+        {[...Array(12)].map((_, i) => (
+          <div key={i} className="absolute left-0 right-0 h-px bg-cyan-400/10" style={{ top: `${(i + 1) * (100 / 13)}%` }} />
+        ))}
+        <div
+          className="absolute left-0 right-0 bottom-0 transition-all duration-1000"
+          style={{
+            height: `${booted ? Math.max(6, load * 100) : 0}%`,
+            background: `linear-gradient(to top, ${loadColor}, ${loadColor}33)`,
+            boxShadow: `0 0 12px ${loadColor}99`,
+          }}
+        />
+        <div
+          className="absolute left-0 right-0 h-[3px]"
+          style={{
+            background: `linear-gradient(90deg, transparent, ${loadColor}, transparent)`,
+            boxShadow: `0 0 10px 2px ${loadColor}`,
+            animation: "hud-vscan 3.4s ease-in-out infinite",
+          }}
+        />
+      </div>
+
       <div className="relative z-10 flex flex-col gap-2.5 rounded-xl border border-cyan-400/20 bg-black/40 px-3 py-3">
         {LAMPS.map((l) => {
           const n = counts[l.key];
@@ -72,6 +99,9 @@ export function SignalTower({
         <div className="text-cyan-100 font-semibold">Statusmast</div>
         <div className="text-cyan-300/50 normal-case tracking-normal">
           {total} Notiz{total === 1 ? "" : "en"} aktiv
+        </div>
+        <div className="normal-case tracking-normal" style={{ color: loadColor }}>
+          {Math.round(load * 100)}% offen
         </div>
         <div className="text-cyan-300/30 normal-case tracking-normal text-[9px] mt-0.5">
           {activeFilter ? "Klick: Filter aufheben" : "Klick auf Lampe: filtern"}
