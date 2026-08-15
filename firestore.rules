@@ -153,5 +153,12 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && authUid() == userId;
     }
 
+    /* =========================
+       Zwischenablage
+       ========================= */
+    match /clipboard/{userId} {
+      allow read, write: if isSignedIn() && authUid() == userId;
+    }
+
   }
 }

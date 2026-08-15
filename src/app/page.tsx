@@ -33,6 +33,12 @@ const modules: Module[] = [
     desc: "Tägliche Selbstbewertung: besser oder schlechter als gestern?",
     href: "/daily",
   },
+  {
+    key: "zwischenablage",
+    title: "Zwischenablage",
+    desc: "Auf einem Gerät einfügen, auf jedem anderen sofort kopierbar.",
+    href: "/zwischenablage",
+  },
 ];
 
 function Card({ m }: { m: Module }) {
