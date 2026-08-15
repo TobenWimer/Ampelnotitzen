@@ -23,6 +23,7 @@ import { FolderTile, DocumentTile } from "@/components/dokumente/Tiles";
 import { ItemNameMenu } from "@/components/dokumente/NameMenu";
 import DokumenteHudStyles from "@/components/dokumente/HudStyles";
 import { uploadDocumentFile, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
+import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
 
 /* ======================
@@ -61,6 +62,9 @@ export default function DokumenteRootPage() {
   // UI: Datei-Upload
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+
+  // UI: Ordner-Download
+  const [downloadPct, setDownloadPct] = useState<number | null>(null);
 
   // ----- Laden: Unterordner auf Root -----
   useEffect(() => {
@@ -312,6 +316,23 @@ export default function DokumenteRootPage() {
   const handleColorFolder = async (id: string, color: FolderColor) => {
     await updateDoc(doc(db, "folders", id), { color });
   };
+  const handleDownloadFolder = async (f: Folder) => {
+    if (!uid) return;
+    setDownloadPct(0);
+    try {
+      const fullPathSlug = currentPathSlug ? `${currentPathSlug}/${f.slug}` : f.slug;
+      await downloadFolderAsZip({ uid, rootName: f.name, fullPathSlug, onProgress: setDownloadPct });
+    } catch (err) {
+      if (err instanceof Error && err.message === "EMPTY_FOLDER") {
+        alert("Dieser Ordner enthält keine hochgeladenen Dateien zum Herunterladen.");
+      } else {
+        console.error("Ordner-Download fehlgeschlagen:", err);
+        alert("Ordner-Download fehlgeschlagen.");
+      }
+    } finally {
+      setDownloadPct(null);
+    }
+  };
 
   // ----- Aktionen: Dokument -----
   const handleRenameDoc = async (id: string) => {
@@ -446,9 +467,18 @@ export default function DokumenteRootPage() {
           </div>
         </div>
 
-        {/* Speicher-/Upload-Ring */}
+        {/* Speicher-/Upload-/Download-Ring */}
         <div className="mb-8 -mt-4">
-          <StorageRing uid={uid} uploadPct={uploadPct} />
+          <StorageRing
+            uid={uid}
+            activity={
+              uploadPct !== null
+                ? { type: "upload", pct: uploadPct }
+                : downloadPct !== null
+                ? { type: "download", pct: downloadPct }
+                : null
+            }
+          />
         </div>
 
         {/* Grid */}
@@ -478,6 +508,7 @@ export default function DokumenteRootPage() {
                     onRename={() => handleRenameFolder(it.folder.id)}
                     onDelete={() => handleDeleteFolder(it.folder)}
                     onColor={(c) => handleColorFolder(it.folder.id, c)}
+                    onDownload={() => handleDownloadFolder(it.folder)}
                   />
                 </div>
               ) : (

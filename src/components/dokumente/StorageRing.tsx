@@ -15,15 +15,17 @@ function formatGB(bytes: number) {
 // Tick-Marks fuer den aeusseren Reticle-Ring
 const TICKS = Array.from({ length: 24 }, (_, i) => i * (360 / 24));
 
-// Kreisring unter den Aktions-Buttons: zeigt waehrend eines Uploads den
-// Fortschritt in %, sonst den belegten Speicher (von 5 GB) - je nach Modus
+export type RingActivity = { type: "upload" | "download"; pct: number } | null;
+
+// Kreisring unter den Aktions-Buttons: zeigt waehrend eines Uploads/Downloads
+// den Fortschritt in %, sonst den belegten Speicher (von 5 GB) - je nach Modus
 // unterschiedliche Farbe, plus zwei gegenlaeufig rotierende Deko-Ringe.
 export default function StorageRing({
   uid,
-  uploadPct,
+  activity,
 }: {
   uid: string | null;
-  uploadPct: number | null;
+  activity: RingActivity;
 }) {
   const [usedBytes, setUsedBytes] = useState(0);
 
@@ -48,17 +50,21 @@ export default function StorageRing({
     return () => unsub();
   }, [uid]);
 
-  const isUpload = uploadPct !== null;
   const storagePct = Math.min(100, (usedBytes / STORAGE_CAP_BYTES) * 100);
-  const pct = isUpload ? Math.min(100, uploadPct ?? 0) : storagePct;
+  const pct = activity ? Math.min(100, activity.pct) : storagePct;
 
   const radius = 33;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (pct / 100) * circumference;
 
-  // Upload/Download: cyan | Speicher-Auslastung: violett
-  const color = isUpload ? "#22d3ee" : "#c084fc";
-  const glow = isUpload ? "rgba(34,211,238,0.7)" : "rgba(192,132,252,0.7)";
+  // Upload: cyan | Download: gruen | Speicher-Auslastung: violett
+  const color = activity?.type === "upload" ? "#22d3ee" : activity?.type === "download" ? "#4ade80" : "#c084fc";
+  const glow =
+    activity?.type === "upload"
+      ? "rgba(34,211,238,0.7)"
+      : activity?.type === "download"
+      ? "rgba(74,222,128,0.7)"
+      : "rgba(192,132,252,0.7)";
 
   if (!uid) return null;
 
@@ -117,10 +123,10 @@ export default function StorageRing({
 
       <div className="text-[10px] leading-tight tracking-wide uppercase">
         <div style={{ color }} className="font-semibold">
-          {isUpload ? "Upload" : "Speicher"}
+          {activity?.type === "upload" ? "Upload" : activity?.type === "download" ? "Download" : "Speicher"}
         </div>
         <div className="text-cyan-300/50 normal-case tracking-normal">
-          {isUpload ? "läuft…" : `${formatGB(usedBytes)} / 5 GB`}
+          {activity ? "läuft…" : `${formatGB(usedBytes)} / 5 GB`}
         </div>
       </div>
     </div>
