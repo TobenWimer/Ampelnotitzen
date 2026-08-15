@@ -519,6 +519,11 @@ export default function AnyDepthFolderPage() {
                     onRename={() => handleRenameDoc(it.doc.id)}
                     onDelete={() => handleDeleteDoc(it.doc)}
                     onColor={(c) => handleColorDoc(it.doc.id, c)}
+                    onDownload={
+                      it.doc.docKind === "file" && it.doc.downloadURL
+                        ? () => window.open(it.doc.downloadURL, "_blank", "noopener,noreferrer")
+                        : undefined
+                    }
                   />
                 </div>
               )

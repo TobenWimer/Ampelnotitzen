@@ -11,12 +11,14 @@ export function ItemNameMenu({
   onRename,
   onDelete,
   onColor,
+  onDownload,
 }: {
   name: string;
   color?: FolderColor;
   onRename: () => void;
   onDelete: () => void;
   onColor: (c: FolderColor) => void;
+  onDownload?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
@@ -29,6 +31,15 @@ export function ItemNameMenu({
 
       {open && (
         <div role="menu" className="dhud-menu absolute top-full mt-2 z-50 min-w-44 rounded-xl overflow-hidden">
+          {onDownload && (
+            <button
+              onClick={() => { setOpen(false); onDownload(); }}
+              className="dhud-menu-item"
+            >
+              Herunterladen
+            </button>
+          )}
+
           <button
             onClick={() => { setOpen(false); onRename(); }}
             className="dhud-menu-item"

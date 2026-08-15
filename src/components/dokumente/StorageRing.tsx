@@ -12,9 +12,12 @@ function formatGB(bytes: number) {
   return gb >= 10 ? gb.toFixed(0) : gb.toFixed(gb < 1 ? 2 : 1);
 }
 
+// Tick-Marks fuer den aeusseren Reticle-Ring
+const TICKS = Array.from({ length: 24 }, (_, i) => i * (360 / 24));
+
 // Kreisring unter den Aktions-Buttons: zeigt waehrend eines Uploads den
 // Fortschritt in %, sonst den belegten Speicher (von 5 GB) - je nach Modus
-// unterschiedliche Farbe, plus rotierender Deko-Ring als Animation.
+// unterschiedliche Farbe, plus zwei gegenlaeufig rotierende Deko-Ringe.
 export default function StorageRing({
   uid,
   uploadPct,
@@ -49,57 +52,64 @@ export default function StorageRing({
   const storagePct = Math.min(100, (usedBytes / STORAGE_CAP_BYTES) * 100);
   const pct = isUpload ? Math.min(100, uploadPct ?? 0) : storagePct;
 
-  const radius = 26;
+  const radius = 33;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference - (pct / 100) * circumference;
 
   // Upload/Download: cyan | Speicher-Auslastung: violett
   const color = isUpload ? "#22d3ee" : "#c084fc";
-  const glow = isUpload ? "rgba(34,211,238,0.65)" : "rgba(192,132,252,0.65)";
+  const glow = isUpload ? "rgba(34,211,238,0.7)" : "rgba(192,132,252,0.7)";
 
   if (!uid) return null;
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="relative h-14 w-14 shrink-0">
-        <svg
-          viewBox="0 0 64 64"
-          className="absolute inset-0 h-full w-full dhud-ring-spin"
-          style={{ color }}
-        >
-          <circle
-            cx="32"
-            cy="32"
-            r="30"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-            strokeDasharray="2 6"
-            opacity="0.55"
-          />
+    <div className="flex items-center gap-4">
+      <div className="relative h-24 w-24 shrink-0">
+        {/* aeusserer Reticle-Ring mit Tick-Marks, langsam & gegenlaeufig */}
+        <svg viewBox="0 0 96 96" className="absolute inset-0 h-full w-full dhud-ring-spin-slow-rev" style={{ color }}>
+          <circle cx="48" cy="48" r="45" fill="none" stroke="currentColor" strokeWidth="1" opacity="0.25" />
+          {TICKS.map((deg, i) => (
+            <line
+              key={deg}
+              x1="48"
+              y1="3.5"
+              x2="48"
+              y2={i % 6 === 0 ? "8.5" : "6.5"}
+              stroke="currentColor"
+              strokeWidth={i % 6 === 0 ? 1.4 : 0.8}
+              opacity={i % 6 === 0 ? 0.7 : 0.35}
+              transform={`rotate(${deg} 48 48)`}
+            />
+          ))}
         </svg>
 
-        <svg viewBox="0 0 64 64" className="absolute inset-0 h-full w-full -rotate-90">
-          <circle cx="32" cy="32" r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
+        {/* mittlerer gestrichelter Ring, langsam rotierend */}
+        <svg viewBox="0 0 96 96" className="absolute inset-0 h-full w-full dhud-ring-spin-slow" style={{ color }}>
+          <circle cx="48" cy="48" r="40" fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="1 7" opacity="0.5" />
+        </svg>
+
+        {/* Fortschritts-Ring */}
+        <svg viewBox="0 0 96 96" className="absolute inset-0 h-full w-full -rotate-90">
+          <circle cx="48" cy="48" r={radius} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="5" />
           <circle
-            cx="32"
-            cy="32"
+            cx="48"
+            cy="48"
             r={radius}
             fill="none"
             stroke={color}
-            strokeWidth="4"
+            strokeWidth="5"
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={dashOffset}
             style={{
-              filter: `drop-shadow(0 0 4px ${glow})`,
+              filter: `drop-shadow(0 0 6px ${glow})`,
               transition: "stroke-dashoffset 0.3s ease, stroke 0.3s ease",
             }}
           />
         </svg>
 
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-[10px] font-bold tabular-nums" style={{ color }}>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-base font-bold tabular-nums leading-none" style={{ color, textShadow: `0 0 10px ${glow}` }}>
             {Math.round(pct)}%
           </span>
         </div>
