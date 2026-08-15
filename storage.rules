@@ -1,19 +1,35 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /documentUploads/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    // Storage-Regeln koennen nicht auf Firestore zugreifen, die Allowlist laesst sich
+    // hier also nicht pruefen. Als Schutz gegen Speicherfrass dienen deshalb harte
+    // Groessenobergrenzen pro Datei. Ohne Firestore-Zugriff kann ein nicht
+    // freigeschaltetes Konto ausserdem keine Metadaten anlegen und die Dateien
+    // dadurch weder sehen noch teilen.
+    function sizeUnder(mb) {
+      return request.resource.size < mb * 1024 * 1024;
     }
+
+    match /documentUploads/{userId}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && (request.resource == null || sizeUnder(200));
+    }
+
     match /clipboardUploads/{userId}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && (request.resource == null || sizeUnder(100));
     }
 
     // Intertransfer-Gates: Empfaenger sind nicht angemeldet, deshalb ist Lesen offen.
-    // Der Schutz liegt in der zufaelligen Gate-ID im Pfad (nicht erratbar).
+    // Der Schutz liegt in der zufaelligen Gate-ID im Pfad (64 Hex-Zeichen, nicht erratbar).
     // Schreiben/Loeschen bleibt auf den Besitzer begrenzt (uid steht im Pfad).
     match /gateUploads/{userId}/{allPaths=**} {
       allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId
+                   && (request.resource == null || sizeUnder(200));
     }
   }
 }

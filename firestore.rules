@@ -8,125 +8,178 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function authUid()    { return request.auth.uid; }
 
+    // Nur freigeschaltete Konten duerfen die App nutzen. Die Freischaltung erfolgt
+    // einmalig ueber den Zugangsschluessel (siehe /allowlist unten). Das begrenzt,
+    // wer Daten und Speicher belegen kann.
+    function isMember() {
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/allowlist/$(request.auth.uid));
+    }
+
+    // Besitzer eines Datensatzes und freigeschaltet
+    function owns(uid) { return isMember() && authUid() == uid; }
+
     function parentDocOwner(docId) {
       return get(/databases/$(database)/documents/documents/$(docId)).data.uid;
+    }
+
+    /* =========================
+       Zugangskontrolle
+
+       config/access enthaelt den SHA-256-Hash des Zugangsschluessels. Fuer Clients
+       ist das Dokument komplett gesperrt - get() in den Regeln umgeht Leseregeln,
+       deshalb kommt die Pruefung unten trotzdem an den Sollwert heran.
+
+       allowlist/{uid}: wer den passenden Hash mitschickt, traegt sich selbst ein.
+       Aendern und Loeschen ist niemandem erlaubt - Entfernen geht nur ueber die
+       Firebase Console.
+       ========================= */
+    match /config/{docId} {
+      allow read, write: if false;
+    }
+
+    match /allowlist/{uid} {
+      allow get: if isSignedIn() && authUid() == uid;
+      allow list: if false;
+      allow create: if isSignedIn()
+                    && authUid() == uid
+                    && request.resource.data.keys().hasOnly(['keyHash','createdAt'])
+                    && request.resource.data.keyHash is string
+                    && request.resource.data.keyHash
+                       == get(/databases/$(database)/documents/config/access).data.keyHash;
+      allow update, delete: if false;
     }
 
     /* =========================
        Kategorien
        ========================= */
     match /categories/{catId} {
-      allow read: if isSignedIn() && authUid() == resource.data.uid;
-      allow create: if isSignedIn()
+      allow read: if owns(resource.data.uid);
+      allow create: if isMember()
                     && authUid() == request.resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','name','order','createdAt'
-                    ]);
-      allow update: if isSignedIn()
-                    && authUid() == resource.data.uid
+                    ])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 120;
+      allow update: if owns(resource.data.uid)
                     && request.resource.data.uid == resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','name','order','createdAt'
-                    ]);
-      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+                    ])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 120;
+      allow delete: if owns(resource.data.uid);
     }
 
     /* =========================
        Stacks
        ========================= */
     match /stacks/{stackId} {
-      allow read: if isSignedIn() && authUid() == resource.data.uid;
-      allow create: if isSignedIn()
+      allow read: if owns(resource.data.uid);
+      allow create: if isMember()
                     && authUid() == request.resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','categoryId','title','order','createdAt'
-                    ]);
-      allow update: if isSignedIn()
-                    && authUid() == resource.data.uid
+                    ])
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() <= 120;
+      allow update: if owns(resource.data.uid)
                     && request.resource.data.uid == resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','categoryId','title','order','createdAt'
-                    ]);
-      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+                    ])
+                    && request.resource.data.title is string
+                    && request.resource.data.title.size() <= 120;
+      allow delete: if owns(resource.data.uid);
     }
 
     /* =========================
        Notizen
        ========================= */
     match /notes/{noteId} {
-      allow read: if isSignedIn() && authUid() == resource.data.uid;
-      allow create: if isSignedIn()
+      allow read: if owns(resource.data.uid);
+      allow create: if isMember()
                     && authUid() == request.resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','text','color','categoryId','stackId','createdAt'
                     ])
-                    && request.resource.data.color in ['green','yellow','red'];
-      allow update: if isSignedIn()
-                    && authUid() == resource.data.uid
+                    && request.resource.data.color in ['green','yellow','red']
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() <= 20000;
+      allow update: if owns(resource.data.uid)
                     && request.resource.data.uid == resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','text','color','categoryId','stackId','createdAt'
-                    ]);
-      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+                    ])
+                    && request.resource.data.color in ['green','yellow','red']
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() <= 20000;
+      allow delete: if owns(resource.data.uid);
     }
 
     /* =========================
        Ordner (Folders)
        ========================= */
     match /folders/{folderId} {
-      allow read: if isSignedIn() && authUid() == resource.data.uid;
-      allow create: if isSignedIn()
+      allow read: if owns(resource.data.uid);
+      allow create: if isMember()
                     && authUid() == request.resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','name','slug','parentPathSlug','color','createdAt','createdAtClient'
-                    ]);
-      allow update: if isSignedIn()
-                    && authUid() == resource.data.uid
+                    ])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 200;
+      allow update: if owns(resource.data.uid)
                     && request.resource.data.uid == resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','name','slug','parentPathSlug','color','createdAt','createdAtClient'
-                    ]);
-      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+                    ])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 200;
+      allow delete: if owns(resource.data.uid);
     }
 
     /* =========================
        Dokumente (Root-Dokumente)
        ========================= */
     match /documents/{docId} {
-      allow read: if isSignedIn() && authUid() == resource.data.uid;
-      allow create: if isSignedIn()
+      allow read: if owns(resource.data.uid);
+      allow create: if isMember()
                     && authUid() == request.resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','name','parentPathSlug','color','createdAt','createdAtClient',
                       'docKind','storagePath','downloadURL','mimeType','sizeBytes'
-                    ]);
-      allow update: if isSignedIn()
-                    && authUid() == resource.data.uid
+                    ])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 300;
+      allow update: if owns(resource.data.uid)
                     && request.resource.data.uid == resource.data.uid
                     && request.resource.data.keys().hasOnly([
                       'uid','name','parentPathSlug','color','createdAt','createdAtClient',
                       'docKind','storagePath','downloadURL','mimeType','sizeBytes'
-                    ]);
-      allow delete: if isSignedIn() && authUid() == resource.data.uid;
+                    ])
+                    && request.resource.data.name is string
+                    && request.resource.data.name.size() <= 300;
+      allow delete: if owns(resource.data.uid);
 
       match /pages/{pageId} {
-        allow read: if isSignedIn()
+        allow read: if isMember()
                     && (
                          (resource.data.uid == authUid()) ||
                          (parentDocOwner(docId) == authUid())
                        );
-        allow create: if isSignedIn()
+        allow create: if isMember()
                       && authUid() == request.resource.data.uid
                       && request.resource.data.keys().hasOnly([
                         'uid','order','format','orientation','strokes','createdAt','createdAtClient'
                       ]);
-        allow update: if isSignedIn()
-                      && authUid() == resource.data.uid
+        allow update: if owns(resource.data.uid)
                       && request.resource.data.uid == resource.data.uid
                       && request.resource.data.keys().hasOnly([
                         'uid','order','format','orientation','strokes','createdAt','createdAtClient'
                       ]);
-        allow delete: if isSignedIn()
+        allow delete: if isMember()
                       && (
                            (resource.data.uid == authUid()) ||
                            (parentDocOwner(docId) == authUid())
@@ -138,59 +191,84 @@ service cloud.firestore {
        Editor-Presets
        ========================= */
     match /editorPrefs/{prefUid} {
-      allow read, write: if isSignedIn() && authUid() == prefUid;
+      allow read, write: if isMember() && authUid() == prefUid;
     }
 
     /* =========================
        Investment Tracker
        ========================= */
     match /tracker/{userId} {
-      allow read, write: if isSignedIn() && authUid() == userId;
+      allow read, write: if isMember() && authUid() == userId;
     }
 
     /* =========================
        Daily Recap
        ========================= */
     match /dailyRecap/{userId} {
-      allow read, write: if isSignedIn() && authUid() == userId;
+      allow read, write: if isMember() && authUid() == userId;
     }
 
     /* =========================
-       Zwischenablage
+       Zwischenablage / Transfer
        ========================= */
     match /clipboard/{userId} {
-      allow read, write: if isSignedIn() && authUid() == userId;
+      allow read, delete: if isMember() && authUid() == userId;
+      allow create, update: if isMember()
+                            && authUid() == userId
+                            && request.resource.data.keys().hasOnly([
+                              'kind','text','files','fileName','storagePath',
+                              'downloadURL','mimeType','sizeBytes','updatedAt'
+                            ])
+                            && (
+                                 !('text' in request.resource.data)
+                                 || request.resource.data.text.size() <= 100000
+                               )
+                            && (
+                                 !('files' in request.resource.data)
+                                 || request.resource.data.files.size() <= 50
+                               );
     }
 
     /* =========================
        Dokumente-Praeferenzen (z.B. Bild-Vorschau an/aus)
        ========================= */
     match /dokumentePrefs/{userId} {
-      allow read, write: if isSignedIn() && authUid() == userId;
+      allow read, write: if isMember() && authUid() == userId;
     }
 
     /* =========================
        Intertransfer-Gates (oeffentliche Abholpunkte auf Zeit)
 
-       Empfaenger sind bewusst NICHT angemeldet: die zufaellige Gate-ID im Link
-       ist der Zugangsschutz. Deshalb:
+       Empfaenger sind bewusst NICHT angemeldet und auch nicht freigeschaltet: die
+       zufaellige Gate-ID im Link ist ihr Zugangsschutz. Deshalb:
        - get: jeder mit dem Link, solange das Gate nicht abgelaufen ist. Der
          Besitzer darf auch abgelaufene lesen, um sie aufraeumen zu koennen.
        - list: nur der Besitzer und nur die eigenen. Damit kann niemand die
          Sammlung durchblaettern und fremde Gates einsammeln.
+       - create: nur freigeschaltete Konten, mit Obergrenzen fuer Dateianzahl,
+         Notizlaenge und Laufzeit (max. 7 Tage).
        - update: der Besitzer frei; Empfaenger duerfen ausschliesslich den
          Abhol-Zaehler um genau 1 erhoehen (Statusanzeige beim Ersteller).
-         Mehr als einen falschen Zaehlerstand kann damit niemand anrichten.
        ========================= */
     match /gates/{gateId} {
       allow get: if (resource.data.expiresAt > request.time.toMillis())
                  || (isSignedIn() && authUid() == resource.data.ownerUid);
       allow list: if isSignedIn() && authUid() == resource.data.ownerUid;
-      allow create: if isSignedIn()
+      allow create: if isMember()
                     && authUid() == request.resource.data.ownerUid
                     && request.resource.data.keys().hasOnly([
                       'ownerUid','files','createdAt','expiresAt','note','downloadCount'
-                    ]);
+                    ])
+                    && request.resource.data.files.size() <= 50
+                    && request.resource.data.note is string
+                    && request.resource.data.note.size() <= 500
+                    && request.resource.data.downloadCount == 0
+                    && request.resource.data.expiresAt is number
+                    && request.resource.data.expiresAt > request.time.toMillis()
+                    // 7 Tage plus Puffer, damit eine leicht abweichende Client-Uhr
+                    // die maximale Laufzeit nicht versehentlich blockiert
+                    && request.resource.data.expiresAt
+                       <= request.time.toMillis() + 7 * 24 * 60 * 60 * 1000 + 10 * 60 * 1000;
       allow update: if (isSignedIn() && authUid() == resource.data.ownerUid)
                     || (
                          resource.data.expiresAt > request.time.toMillis()
