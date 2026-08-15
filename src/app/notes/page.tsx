@@ -7,7 +7,6 @@
  * - NEU: Stack löschen durch Klick auf Stack-Titel → zeigt „X“, löscht Stack und setzt zugehörige Notizen auf stackId:null
  */
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -28,6 +27,8 @@ import {
   getDocs,
   writeBatch,
 } from "firebase/firestore";
+import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { SignalTower } from "@/components/hud/SignalTower";
 
 /* =========================
    Typen
@@ -88,71 +89,43 @@ type NoteDoc = {
    Stile
    ========================= */
 
+const TONE_COLORS: Record<Color, string> = {
+  green: "#4ade80",
+  yellow: "#fbbf24",
+  red: "#f87171",
+};
+
 const STACK_COL_CLASS = "space-y-3";
 const STACK_HEADER_CLASS =
-  "sticky top-0 z-10 px-3 py-2 rounded-xl border border-black/20 " +
-  "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 " +
-  "backdrop-blur-md text-gray-900 font-semibold flex items-center justify-between";
+  "hud-panel sticky top-0 z-10 px-3 py-2 rounded-xl text-cyan-100 text-xs uppercase tracking-wider font-semibold flex items-center justify-between";
 
 const filterChipClass = (active: boolean) =>
-  "px-3 py-1 rounded-full text-sm border backdrop-blur-md transition " +
-  (active
-    ? "border-black/60 text-white shadow bg-gradient-to-br from-black/70 via-neutral-900/60 to-neutral-800/60"
-    : "border-black/25 text-gray-900 shadow-sm bg-gradient-to-br from-gray-200/60 via-white/40 to-gray-100/55 hover:bg-white/60");
+  `hud-btn ${active ? "hud-btn-primary" : "hud-btn-outline"}`;
 
 const tinyXBtn =
-  "inline-flex items-center justify-center w-6 h-6 rounded-lg border border-black/25 " +
-  "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 text-gray-800 hover:border-black/50";
+  "inline-flex items-center justify-center w-7 h-7 rounded-lg border border-rose-400/35 text-rose-300 hover:border-rose-400/70 hover:bg-rose-500/10 transition";
 
 const stackChipClass = (active: boolean) =>
-  "px-3 h-9 rounded-xl border text-sm font-semibold " +
-  "bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 " +
-  "backdrop-blur-md " +
-  (active
-    ? "text-gray-900 border-black/80 shadow"
-    : "text-gray-700 border-black/25 hover:border-black/40");
+  `hud-btn ${active ? "hud-btn-primary" : "hud-btn-outline"}`;
 
-const addButtonClass =
-  "w-full relative rounded-2xl border border-blue-950/25 " +
-  "bg-gradient-to-br from-blue-700/45 via-blue-500/35 to-blue-200/30 " +
-  "backdrop-blur-md text-black font-semibold py-2 mb-6 " +
-  "shadow-lg hover:shadow-xl transition-shadow";
+const addButtonClass = "hud-btn hud-btn-primary w-full mb-6";
 
 const inputGlassClass =
-  "w-full p-3 rounded-2xl mb-2 text-lg resize-y min-h[100px] min-h-[100px] " +
-  "border border-black/20 " +
-  "bg-gradient-to-br from-slate-200/50 via-white/30 to-slate-100/30 " +
-  "backdrop-blur-md text-gray-900 placeholder-gray-600 " +
-  "focus:outline-none focus:ring-2 focus:ring-black/20";
+  "hud-input w-full mb-2 text-base resize-y min-h-[100px]";
 
-const circleClass = (active: boolean, tone: "green" | "yellow" | "red") =>
-  `w-6 h-6 rounded-full border-2 ${
-    active
-      ? tone === "green"
-        ? "bg-green-600 border-green-800"
-        : tone === "yellow"
-        ? "bg-yellow-500 border-yellow-700"
-        : "bg-red-600 border-red-800"
-      : tone === "green"
-      ? "bg-green-300"
-      : tone === "yellow"
-      ? "bg-yellow-200"
-      : "bg-red-300"
-  }`;
+const circleClass = (active: boolean, tone: Color) => `w-7 h-7 rounded-full border-2 transition-all`;
 
-const noteCardClass = (tone: Color) => {
-  const base =
-    "relative p-4 rounded-2xl shadow-lg text-black font-medium text-lg border backdrop-blur-md transition-all";
-  const glass = "border-black/20 bg-white/40";
-  const byTone =
-    tone === "green"
-      ? "bg-gradient-to-br from-emerald-200/60 via-emerald-100/40 to-emerald-50/30"
-      : tone === "yellow"
-      ? "bg-gradient-to-br from-amber-200/60 via-amber-100/40 to-amber-50/30"
-      : "bg-gradient-to-br from-rose-200/60 via-rose-100/40 to-rose-50/30";
-  const hover = "hover:shadow-xl";
-  return `${base} ${glass} ${byTone} ${hover}`;
+const circleStyle = (active: boolean, tone: Color): React.CSSProperties => {
+  const c = TONE_COLORS[tone];
+  return {
+    background: active ? c : "rgba(255,255,255,0.05)",
+    borderColor: active ? c : `${c}55`,
+    boxShadow: active ? `0 0 12px 2px ${c}99, inset 0 0 6px rgba(255,255,255,0.35)` : "none",
+  };
 };
+
+const noteCardClass = () =>
+  "hud-panel hud-panel-hover relative p-4 rounded-2xl text-cyan-50 text-base";
 
 /* =========================
    Seite
@@ -183,6 +156,7 @@ export default function NotesPage() {
 
   // Filter + UI-Zustände
   const [filter, setFilter] = useState<"ALL" | string>("ALL");
+  const [colorFilter, setColorFilter] = useState<Color | null>(null);
   const [openColorFor, setOpenColorFor] = useState<string | null>(null);
   const [openCatFor, setOpenCatFor] = useState<string | null>(null);
   const [openStackFor, setOpenStackFor] = useState<string | null>(null);
@@ -566,10 +540,20 @@ export default function NotesPage() {
 
   /* Abgeleitete Daten */
 
+  const signalCounts = useMemo(
+    () => ({
+      green: notes.filter((n) => n.color === "green").length,
+      yellow: notes.filter((n) => n.color === "yellow").length,
+      red: notes.filter((n) => n.color === "red").length,
+    }),
+    [notes]
+  );
+
   const filteredNotes = useMemo(() => {
-    if (filter === "ALL") return notes;
-    return notes.filter((n) => (n.categoryId ?? null) === filter);
-  }, [notes, filter]);
+    let list = filter === "ALL" ? notes : notes.filter((n) => (n.categoryId ?? null) === filter);
+    if (colorFilter) list = list.filter((n) => n.color === colorFilter);
+    return list;
+  }, [notes, filter, colorFilter]);
 
   const groupedByStack = useMemo(() => {
     if (filter === "ALL") return {};
@@ -585,23 +569,29 @@ export default function NotesPage() {
   /* Render */
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="p-8 max-w-5xl mx-auto font-sans">
-        {/* Mini-Header: Logo + Title → Link zur Startseite */}
-        <Link href="/" className="flex flex-col items-center mb-6 group" title="Zur Startseite">
-          <Image
-            src="/logo.png"
-            alt="OneStepBehind Logo"
-            width={88}
-            height={88}
-            priority
-            className="transition-transform group-hover:scale-105"
-          />
-          <h1 className="mt-3 text-4xl md:text-5xl font-extrabold text-black tracking-tight group-hover:opacity-90">
-            OneStepBehind
-          </h1>
-          <span className="mt-2 text-xs text-gray-6000 opacity-80"> </span>
-        </Link>
+    <div className="min-h-screen hud-bg text-cyan-50 relative overflow-hidden font-mono">
+      <div className="hud-grid pointer-events-none absolute inset-0" />
+
+      {/* Einheitlicher Header wie in den anderen Modulen */}
+      <header className="relative z-10 w-full flex items-center justify-between px-6 py-4 border-b border-cyan-400/20 bg-black/20 backdrop-blur-sm">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="text-xs tracking-widest text-cyan-400/70 hover:text-cyan-300 transition uppercase">
+            ← Zurück
+          </Link>
+          <span className="text-cyan-400/20">|</span>
+          <h1 className="hud-title text-lg font-bold text-cyan-100 uppercase">Notizen</h1>
+        </div>
+        <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
+          <span className="hud-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
+          Sync aktiv
+        </span>
+      </header>
+
+      <div className="relative z-10 p-6 md:p-8 max-w-5xl mx-auto">
+        {/* Ampel-Statusmast */}
+        <div className="mb-8">
+          <SignalTower counts={signalCounts} activeFilter={colorFilter} onFilter={setColorFilter} />
+        </div>
 
         {/* Kategorien-Filter + Manager */}
         <div className="mb-4 flex flex-wrap items-center gap-2 justify-between">
@@ -653,12 +643,7 @@ export default function NotesPage() {
           {/* + Kategorie / + Stack */}
           <div className="flex items-center gap-2">
             {!catDialogOpen ? (
-              <button
-                onClick={() => setCatDialogOpen(true)}
-                className="rounded-2xl px-3 py-2 text-sm border border-black/30 text-gray-900
-                           bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45
-                           backdrop-blur-md hover:bg-white/60 transition shadow-sm"
-              >
+              <button onClick={() => setCatDialogOpen(true)} className="hud-btn hud-btn-outline">
                 + Kategorie
               </button>
             ) : (
@@ -667,17 +652,9 @@ export default function NotesPage() {
                   value={newCatName}
                   onChange={(e) => setNewCatName(e.target.value)}
                   placeholder="Kategoriename"
-                  className="px-3 py-2 rounded-2xl border border-black/30
-                             bg-gradient-to-br from-white/70 via-white/40 to-white/20
-                             backdrop-blur-md text-gray-900 placeholder-gray-500
-                             focus:outline-none focus:ring-2 focus:ring-black/20"
+                  className="hud-input"
                 />
-                <button
-                  onClick={addCategory}
-                  className="rounded-2xl px-3 py-2 text-sm border border-black/30 text-gray-900
-                             bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45
-                             backdrop-blur-md hover:bg-white/60 transition shadow-sm"
-                >
+                <button onClick={addCategory} className="hud-btn hud-btn-primary">
                   Speichern
                 </button>
                 <button
@@ -685,9 +662,7 @@ export default function NotesPage() {
                     setCatDialogOpen(false);
                     setNewCatName("");
                   }}
-                  className="rounded-2xl px-3 py-2 text-sm border border-black/30 text-gray-900
-                             bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45
-                             backdrop-blur-md hover:bg-white/60 transition shadow-sm"
+                  className="hud-btn hud-btn-outline"
                 >
                   Abbrechen
                 </button>
@@ -696,12 +671,7 @@ export default function NotesPage() {
 
             {filter !== "ALL" &&
               (!stackDialogOpen ? (
-                <button
-                  onClick={() => setStackDialogOpen(true)}
-                  className="rounded-2xl px-3 py-2 text-sm border border-black/30 text-gray-900
-                             bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45
-                             backdrop-blur-md hover:bg-white/60 transition shadow-sm"
-                >
+                <button onClick={() => setStackDialogOpen(true)} className="hud-btn hud-btn-outline">
                   + Stack
                 </button>
               ) : (
@@ -710,17 +680,9 @@ export default function NotesPage() {
                     value={newStackTitle}
                     onChange={(e) => setNewStackTitle(e.target.value)}
                     placeholder="Stack-Titel"
-                    className="px-3 py-2 rounded-2xl border border-black/30
-                               bg-gradient-to-br from-white/70 via-white/40 to-white/20
-                               backdrop-blur-md text-gray-900 placeholder-gray-500
-                               focus:outline-none focus:ring-2 focus:ring-black/20"
+                    className="hud-input"
                   />
-                  <button
-                    onClick={addStack}
-                    className="rounded-2xl px-3 py-2 text-sm border border-black/30 text-gray-900
-                               bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45
-                               backdrop-blur-md hover:bg-white/60 transition shadow-sm"
-                  >
+                  <button onClick={addStack} className="hud-btn hud-btn-primary">
                     Speichern
                   </button>
                   <button
@@ -728,9 +690,7 @@ export default function NotesPage() {
                       setStackDialogOpen(false);
                       setNewStackTitle("");
                     }}
-                    className="rounded-2xl px-3 py-2 text-sm border border-black/30 text-gray-900
-                               bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45
-                               backdrop-blur-md hover:bg-white/60 transition shadow-sm"
+                    className="hud-btn hud-btn-outline"
                   >
                     Abbrechen
                   </button>
@@ -760,17 +720,16 @@ export default function NotesPage() {
                     [categoryIdForNew]: null,
                   }));
                 }}
-                className={
-                  (selectedStackForNew === null ? "border-black/80 shadow " : "border-black/25 hover:border-black/40 ") +
-                  "h-9 min-w-[28px] rounded-xl border bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md"
-                }
+                className={`hud-btn ${selectedStackForNew === null ? "hud-btn-primary" : "hud-btn-outline"} min-w-[36px]`}
                 title="Ohne Stack"
                 aria-label="Kein Stack"
-              />
+              >
+                —
+              </button>
               {loadingStacksForNew ? (
-                <span className="text-gray-500 text-sm">Lade Stacks…</span>
+                <span className="text-cyan-300/40 text-xs">Lade Stacks…</span>
               ) : stacksForNew.length === 0 ? (
-                <span className="text-gray-500 text-sm">Keine Stacks – oben „+ Stack“ nutzen.</span>
+                <span className="text-cyan-300/40 text-xs">Keine Stacks – oben „+ Stack“ nutzen.</span>
               ) : (
                 stacksForNew.map((s) => {
                   const active = selectedStackForNew === s.id;
@@ -794,9 +753,15 @@ export default function NotesPage() {
 
           {/* Ampel */}
           <div className="flex gap-3">
-            <button onClick={() => setColor("green")} aria-label="Grün wählen" className={circleClass(color === "green", "green")} />
-            <button onClick={() => setColor("yellow")} aria-label="Gelb wählen" className={circleClass(color === "yellow", "yellow")} />
-            <button onClick={() => setColor("red")} aria-label="Rot wählen" className={circleClass(color === "red", "red")} />
+            {(["green", "yellow", "red"] as const).map((tone) => (
+              <button
+                key={tone}
+                onClick={() => setColor(tone)}
+                aria-label={`${tone} wählen`}
+                className={circleClass(color === tone, tone)}
+                style={circleStyle(color === tone, tone)}
+              />
+            ))}
           </div>
         </div>
 
@@ -851,6 +816,8 @@ export default function NotesPage() {
           />
         )}
       </div>
+
+      <HudGlobalStyles />
     </div>
   );
 }
@@ -907,7 +874,7 @@ function StacksGrid({
   const noneKey = "__none__";
   const cols = [{ id: noneKey, title: "(Kein Stack)" }, ...stacks.map((s) => ({ id: s.id, title: s.title }))];
 
-  if (loadingNotes || loadingStacks) return <div className="text-gray-500">Lade…</div>;
+  if (loadingNotes || loadingStacks) return <div className="text-cyan-300/40 text-sm">Lade…</div>;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -920,14 +887,14 @@ function StacksGrid({
           <div key={col.id} className={STACK_COL_CLASS}>
             <div className={STACK_HEADER_CLASS}>
               <button
-                className="text-left flex-1"
+                className="relative z-10 text-left flex-1 truncate"
                 title={col.title}
                 onClick={() => isDeletable && onToggleStackHeader(col.id)}
               >
                 {col.title}
               </button>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-600">{list.length}</span>
+              <div className="relative z-10 flex items-center gap-2 shrink-0">
+                <span className="text-[10px] text-cyan-300/50 tabular-nums">{list.length}</span>
                 {isDeletable && isHeaderOpen && (
                   <button
                     className={tinyXBtn}
@@ -942,7 +909,7 @@ function StacksGrid({
             </div>
 
             {list.length === 0 ? (
-              <div className="text-gray-400 italic px-1">Keine Notizen.</div>
+              <div className="text-cyan-300/25 text-xs px-1 py-2">— Keine Notizen. —</div>
             ) : (
               <div className="space-y-3">
                 {list.map((note) => (
@@ -1013,8 +980,8 @@ function SectionList({
   onOpenStackFor: (id: string) => void;
   onChangeStack: (id: string, newStackId: string | null) => void;
 }) {
-  if (loading) return <div className="text-gray-500">Lade Notizen…</div>;
-  if (notes.length === 0) return <div className="text-gray-500">Noch keine Notizen gespeichert.</div>;
+  if (loading) return <div className="text-cyan-300/40 text-sm">Lade Notizen…</div>;
+  if (notes.length === 0) return <div className="text-cyan-300/30 text-sm">— Noch keine Notizen gespeichert. —</div>;
 
   return (
     <div className="space-y-3">
@@ -1082,34 +1049,42 @@ function NoteCard({
   const isColorOpen = openColorFor === note.id;
   const isCatOpen = openCatFor === note.id;
   const isStackOpen = openStackFor === note.id;
+  const tone = TONE_COLORS[note.color];
 
   return (
-    <div className={noteCardClass(note.color)}>
+    <div className={noteCardClass()} style={{ borderColor: `${tone}55` }}>
+      {/* farbiger Statusstreifen links, ersetzt die frueheren Pastell-Flaechen */}
+      <span
+        className="absolute left-0 top-3 bottom-3 w-1 rounded-full"
+        style={{ background: tone, boxShadow: `0 0 8px ${tone}` }}
+      />
+
       {/* Löschen */}
       <button
         onClick={() => onDelete(note.id)}
-        className="absolute top-2 right-2 text-gray-700 hover:text-black"
+        className="absolute top-2 right-2 z-20 text-cyan-300/40 hover:text-rose-300 transition"
         aria-label="Notiz löschen"
       >
         ✖
       </button>
 
-      {/* Inhalt / Edit */}
-      {note.isEditing ? (
-        <EditRow
-          defaultValue={note.text}
-          onSave={(val) => onSave(note.id, val)}
-          onCancel={() => onToggleEdit(note.id)}
-        />
-      ) : (
-        <div
-          onClick={() => onToggleEdit(note.id)}
-          className="cursor-pointer whitespace-pre-wrap"
-          title="Zum Bearbeiten klicken"
-        >
-          {note.text}
-        </div>
-      )}
+      <div className="relative z-10 pl-3">
+        {/* Inhalt / Edit */}
+        {note.isEditing ? (
+          <EditRow
+            defaultValue={note.text}
+            onSave={(val) => onSave(note.id, val)}
+            onCancel={() => onToggleEdit(note.id)}
+          />
+        ) : (
+          <div
+            onClick={() => onToggleEdit(note.id)}
+            className="cursor-pointer whitespace-pre-wrap text-cyan-50/90 leading-relaxed pr-5"
+            title="Zum Bearbeiten klicken"
+          >
+            {note.text}
+          </div>
+        )}
 
       {/* Footer: Kategorie + Stack + Ampel */}
       <div className="flex items-center gap-3 mt-3 flex-wrap">
@@ -1117,7 +1092,7 @@ function NoteCard({
         <div className="relative">
           <button
             onClick={() => onOpenCatFor(note.id)}
-            className="text-xs bg-white/80 text-gray-800 rounded px-2 py-0.5 border border-white/70 shadow-sm"
+            className="text-[10px] uppercase tracking-wider text-cyan-200/70 rounded px-2 py-0.5 border border-cyan-400/25 bg-cyan-400/5 hover:border-cyan-400/60 transition"
             aria-expanded={isCatOpen}
             aria-label="Kategorie öffnen/schließen"
             title="Kategorie ändern"
@@ -1131,7 +1106,7 @@ function NoteCard({
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 onClick={() => onChangeCategory(note.id, null)}
-                className="px-2 py-1 rounded text-xs border bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                className="px-2 py-1 rounded text-[10px] uppercase tracking-wider border border-cyan-400/25 text-cyan-200/60 hover:border-cyan-400/60 transition"
               >
                 (Keine)
               </button>
@@ -1139,10 +1114,10 @@ function NoteCard({
                 <button
                   key={c.id}
                   onClick={() => onChangeCategory(note.id, c.id)}
-                  className={`px-2 py-1 rounded text-xs border ${
+                  className={`px-2 py-1 rounded text-[10px] uppercase tracking-wider border transition ${
                     note.categoryId === c.id
-                      ? "bg-gray-900 text-white border-gray-900"
-                      : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                      ? "border-cyan-400 text-cyan-100 bg-cyan-400/20"
+                      : "border-cyan-400/25 text-cyan-200/60 hover:border-cyan-400/60"
                   }`}
                   title={`Zu "${c.name}" verschieben`}
                 >
@@ -1158,10 +1133,10 @@ function NoteCard({
           <div className="relative">
             <button
               onClick={() => onOpenStackFor(note.id)}
-              className={`text-xs rounded px-2 py-0.5 border shadow-sm ${
+              className={`text-[10px] uppercase tracking-wider rounded px-2 py-0.5 border transition ${
                 note.stackId
-                  ? "bg-white/80 text-gray-800 border-white/70"
-                  : "bg-white/50 text-transparent border-white/60 min-w-[24px]"
+                  ? "text-cyan-200/70 border-cyan-400/25 bg-cyan-400/5 hover:border-cyan-400/60"
+                  : "text-transparent border-cyan-400/15 min-w-[24px] hover:border-cyan-400/40"
               }`}
               aria-expanded={isStackOpen}
               aria-label="Stack öffnen/schließen"
@@ -1176,7 +1151,7 @@ function NoteCard({
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   onClick={() => onChangeStack(note.id, null)}
-                  className="px-2 py-1 rounded text-xs border bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                  className="px-2 py-1 rounded text-[10px] uppercase tracking-wider border border-cyan-400/25 text-cyan-200/60 hover:border-cyan-400/60 transition"
                 >
                   (Kein Stack)
                 </button>
@@ -1184,10 +1159,10 @@ function NoteCard({
                   <button
                     key={s.id}
                     onClick={() => onChangeStack(note.id, s.id)}
-                    className={`px-2 py-1 rounded text-xs border ${
+                    className={`px-2 py-1 rounded text-[10px] uppercase tracking-wider border transition ${
                       note.stackId === s.id
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                        ? "border-cyan-400 text-cyan-100 bg-cyan-400/20"
+                        : "border-cyan-400/25 text-cyan-200/60 hover:border-cyan-400/60"
                     }`}
                     title={`Zu "${s.title}" verschieben`}
                   >
@@ -1206,18 +1181,27 @@ function NoteCard({
           <button
             onClick={() => onOpenColorFor(note.id)}
             className={circleClass(true, note.color)}
+            style={circleStyle(true, note.color)}
             aria-expanded={isColorOpen}
             aria-label="Farbe öffnen/schließen"
             title="Farbe ändern"
           />
           {isColorOpen && (
             <div className="mt-2 flex items-center gap-3">
-              <button onClick={() => onChangeColor(note.id, "green")} aria-label="Grün setzen" className={circleClass(note.color === "green", "green")} title="Grün" />
-              <button onClick={() => onChangeColor(note.id, "yellow")} aria-label="Gelb setzen" className={circleClass(note.color === "yellow", "yellow")} title="Gelb" />
-              <button onClick={() => onChangeColor(note.id, "red")} aria-label="Rot setzen" className={circleClass(note.color === "red", "red")} title="Rot" />
+              {(["green", "yellow", "red"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => onChangeColor(note.id, t)}
+                  aria-label={`${t} setzen`}
+                  className={circleClass(note.color === t, t)}
+                  style={circleStyle(note.color === t, t)}
+                  title={t}
+                />
+              ))}
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -1264,24 +1248,14 @@ function EditRow({
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) onSave(val);
           if (e.key === "Escape") onCancel();
         }}
-        className="w-full p-3 rounded-2xl border border-black/30 text-black text-lg
-                   bg-gradient-to-br from-slate-200/50 via-white/30 to-slate-100/30
-                   backdrop-blur-md focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+        className="hud-input w-full text-base resize-none"
         placeholder="Notiz bearbeiten…"
       />
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => onSave(val)}
-          className="rounded-2xl px-3 py-2 text-sm bg-gradient-to-br from-gray-200/50 via-white/30 to-gray-100/30
-                     text-gray-900 border border-black/30 backdrop-blur-md hover:bg-white/50 transition shadow-sm"
-        >
+        <button onClick={() => onSave(val)} className="hud-btn hud-btn-primary">
           Speichern
         </button>
-        <button
-          onClick={onCancel}
-          className="rounded-2xl px-3 py-2 text-sm bg-gradient-to-br from-gray-200/50 via-white/30 to-gray-100/30
-                     text-gray-900 border border-black/30 backdrop-blur-md hover:bg-white/50 transition shadow-sm"
-        >
+        <button onClick={onCancel} className="hud-btn hud-btn-outline">
           Abbrechen
         </button>
       </div>

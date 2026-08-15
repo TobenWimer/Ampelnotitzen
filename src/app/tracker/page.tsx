@@ -6,6 +6,8 @@ import Link from "next/link";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { PortfolioCore } from "@/components/hud/PortfolioCore";
 
 type Trade = {
   asset: string;
@@ -81,10 +83,10 @@ const fmtDate = (iso: string) => {
 const CURRENCIES = ["CHF", "USD", "EUR", "JPY", "GBP", "Andere"];
 const TYPES = ["Aktie", "Krypto", "Forex", "ETF", "Andere"];
 
-const inputCls = "w-full rounded-xl border border-black/20 bg-gray-50 px-3 py-2 text-sm text-black focus:outline-none focus:border-black/40 transition";
-const btnCls = "px-4 py-2 rounded-xl text-sm border border-black/20 text-gray-700 hover:bg-gray-50 transition";
-const btnPrimaryCls = "px-4 py-2 rounded-xl text-sm bg-black text-white hover:bg-gray-800 transition";
-const POT_COLORS = ["#2563eb","#16a34a","#dc2626","#9333ea","#f59e0b","#0891b2","#db2777","#65a30d"];
+const inputCls = "hud-input w-full";
+const btnCls = "hud-btn hud-btn-outline";
+const btnPrimaryCls = "hud-btn hud-btn-primary";
+const POT_COLORS = ["#38bdf8","#4ade80","#f87171","#a78bfa","#fbbf24","#2dd4bf","#f472b6","#a3e635"];
 
 // ── Timeline builders ──────────────────────────────────────────────────────
 
@@ -228,11 +230,18 @@ export default function TrackerPage() {
   useEffect(() => {
     if (!user) return;
     const ref = doc(db, "tracker", user.uid);
-    const unsub = onSnapshot(ref, (snap) => {
-      if (snap.exists()) setData(snap.data() as TrackerData);
-      else setData({ pots: [], history: [] });
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) setData(snap.data() as TrackerData);
+        else setData({ pots: [], history: [] });
+        setLoading(false);
+      },
+      (err) => {
+        console.error("[Tracker] snapshot failed:", err);
+        setLoading(false);
+      }
+    );
     return unsub;
   }, [user]);
 
@@ -298,30 +307,48 @@ export default function TrackerPage() {
   }, [data, save]);
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-white">
-      <p className="text-gray-400 text-sm">Laden…</p>
+    <div className="min-h-screen hud-bg flex items-center justify-center">
+      <p className="text-cyan-400/70 text-xs font-mono tracking-[0.3em] uppercase" style={{ animation: "hud-blink 1.4s ease-in-out infinite" }}>
+        Initialisiere…
+      </p>
+      <HudGlobalStyles />
     </div>
   );
 
   const totalInvested = data.pots.reduce((s, p) => s + (p.trade?.investedChf ?? 0), 0);
   const openPots = data.pots.filter(p => p.trade).length;
   const freePots = data.pots.filter(p => !p.trade).length;
+  const totalPl = data.history.reduce((s, h) => s + h.plChf, 0);
+  const totalInvestedClosed = data.history.reduce((s, h) => s + h.investedChf, 0);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col" onClick={() => setContextMenu(null)}>
-      <header className="w-full flex items-center justify-between px-6 py-4 bg-white/40 backdrop-blur-md border-b border-black/10">
+    <div className="min-h-screen hud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono" onClick={() => setContextMenu(null)}>
+      <div className="hud-grid pointer-events-none absolute inset-0" />
+
+      <header className="relative z-10 w-full flex items-center justify-between px-6 py-4 border-b border-cyan-400/20 bg-black/20 backdrop-blur-sm">
         <div className="flex items-center gap-3">
-          <Link href="/" className="text-sm text-gray-500 hover:text-black transition">← Zurück</Link>
-          <span className="text-black/20">|</span>
-          <h1 className="text-xl font-bold text-black">Investment Tracker</h1>
+          <Link href="/" className="text-xs tracking-widest text-cyan-400/70 hover:text-cyan-300 transition uppercase">
+            ← Zurück
+          </Link>
+          <span className="text-cyan-400/20">|</span>
+          <h1 className="hud-title text-lg font-bold text-cyan-100 uppercase">Investment Tracker</h1>
         </div>
+        <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
+          <span className="hud-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
+          Sync aktiv
+        </span>
       </header>
 
-      <div className="flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
-        <div className="flex gap-1 border-b border-black/10 mb-8">
+      <div className="relative z-10 flex-1 max-w-4xl mx-auto px-6 py-8 w-full">
+        {/* Portfolio-Reaktor */}
+        <div className="mb-8">
+          <PortfolioCore totalPl={totalPl} totalInvestedClosed={totalInvestedClosed} openCount={openPots} />
+        </div>
+
+        <div className="flex gap-1 border-b border-cyan-400/15 mb-8">
           {(["pots", "history", "graph"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 text-sm transition border-b-2 -mb-px ${tab === t ? "border-black text-black font-medium" : "border-transparent text-gray-400 hover:text-gray-700"}`}>
+              className={`px-4 py-2 text-xs uppercase tracking-wider transition border-b-2 -mb-px ${tab === t ? "border-cyan-400 text-cyan-100 font-medium" : "border-transparent text-cyan-300/40 hover:text-cyan-200"}`}>
               {t === "pots" ? "Pots" : t === "history" ? "History" : "Graph"}
             </button>
           ))}
@@ -336,9 +363,11 @@ export default function TrackerPage() {
                 { label: "Freie Pots", value: String(freePots) },
                 { label: "Pots total", value: String(data.pots.length) },
               ].map(k => (
-                <div key={k.label} className="rounded-xl bg-gray-50 border border-black/10 p-4">
-                  <p className="text-xs text-gray-400 mb-1">{k.label}</p>
-                  <p className="text-lg font-bold text-black">{k.value}</p>
+                <div key={k.label} className="hud-panel rounded-xl p-4">
+                  <div className="relative z-10">
+                    <p className="text-[10px] uppercase tracking-wider text-cyan-300/40 mb-1">{k.label}</p>
+                    <p className="text-lg font-bold text-cyan-100 tabular-nums">{k.value}</p>
+                  </div>
                 </div>
               ))}
             </div>
@@ -350,34 +379,36 @@ export default function TrackerPage() {
                 />
               ))}
               <button onClick={addPot}
-                className="rounded-2xl border border-dashed border-black/20 p-5 text-gray-400 text-sm hover:border-black/40 hover:text-gray-600 transition flex items-center justify-center gap-2 min-h-[100px]">
+                className="rounded-2xl border border-dashed border-cyan-400/25 p-5 text-cyan-300/40 text-xs uppercase tracking-wider hover:border-cyan-400/60 hover:text-cyan-200 transition flex items-center justify-center gap-2 min-h-[100px]">
                 + Neuer Pot
               </button>
             </div>
-            <p className="text-xs text-gray-300 text-center mt-4">Rechtsklick auf einen Pot zum Löschen</p>
+            <p className="text-[10px] text-cyan-300/25 text-center mt-4 tracking-wide">Rechtsklick auf einen Pot zum Löschen</p>
           </div>
         )}
 
         {tab === "history" && (
           <div className="flex flex-col gap-3">
-            {data.history.length === 0 && <p className="text-gray-400 text-sm text-center py-12">Noch keine abgeschlossenen Trades.</p>}
+            {data.history.length === 0 && <p className="text-cyan-300/30 text-sm text-center py-12">— Noch keine abgeschlossenen Trades. —</p>}
             {data.history.map((h, i) => (
               <div key={i}
-                className="rounded-xl border border-black/10 p-4 flex justify-between items-center bg-white cursor-context-menu select-none"
+                className="hud-panel rounded-xl p-4 cursor-context-menu select-none"
                 onContextMenu={e => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, kind: "history", index: i }); }}>
-                <div>
-                  <p className="font-medium text-black">Pot {h.potNr} · {h.asset}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{h.type} · {fmtDate(h.entryDate)} → {fmtDate(h.closeDate)}</p>
-                  <p className="text-xs text-gray-400">{fmtAbs(h.investedChf)} CHF · {h.receivedAmt.toFixed(4)} {h.currency} → {h.exitAmt.toFixed(4)} {h.currency}</p>
-                </div>
-                <div className="text-right">
-                  <p className={`font-bold text-sm ${h.plChf >= 0 ? "text-green-600" : "text-red-500"}`}>{fmtPct(h.plPct)}</p>
-                  <p className={`text-sm ${h.plChf >= 0 ? "text-green-600" : "text-red-500"}`}>{fmt(h.plChf)}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{fmtAbs(h.exitChf)} CHF</p>
+                <div className="relative z-10 flex justify-between items-center gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-cyan-100">Pot {h.potNr} · {h.asset}</p>
+                    <p className="text-[11px] text-cyan-300/40 mt-0.5">{h.type} · {fmtDate(h.entryDate)} → {fmtDate(h.closeDate)}</p>
+                    <p className="text-[11px] text-cyan-300/40">{fmtAbs(h.investedChf)} CHF · {h.receivedAmt.toFixed(4)} {h.currency} → {h.exitAmt.toFixed(4)} {h.currency}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`font-bold text-sm tabular-nums ${h.plChf >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtPct(h.plPct)}</p>
+                    <p className={`text-sm tabular-nums ${h.plChf >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmt(h.plChf)}</p>
+                    <p className="text-[11px] text-cyan-300/40 mt-0.5 tabular-nums">{fmtAbs(h.exitChf)} CHF</p>
+                  </div>
                 </div>
               </div>
             ))}
-            <p className="text-xs text-gray-300 text-center mt-2">Rechtsklick auf einen Eintrag zum Löschen</p>
+            <p className="text-[10px] text-cyan-300/25 text-center mt-2 tracking-wide">Rechtsklick auf einen Eintrag zum Löschen</p>
           </div>
         )}
 
@@ -385,20 +416,20 @@ export default function TrackerPage() {
       </div>
 
       {contextMenu && (
-        <div className="fixed z-50 bg-white border border-black/10 rounded-xl shadow-lg py-1 min-w-[160px]"
+        <div className="hud-menu fixed z-50 rounded-xl overflow-hidden min-w-[160px]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={e => e.stopPropagation()}>
           {contextMenu.kind === "pot" && (
             <>
-              <div className="px-4 py-1.5 text-xs text-gray-400 border-b border-black/5">Pot {data.pots[contextMenu.index]?.nr}</div>
-              <button className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
+              <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-cyan-300/40 border-b border-cyan-400/10">Pot {data.pots[contextMenu.index]?.nr}</div>
+              <button className="hud-menu-item text-rose-300 hover:bg-rose-500/10"
                 onClick={() => { if (confirm("Pot wirklich löschen?")) deletePot(contextMenu.index); }}>
                 Pot löschen
               </button>
             </>
           )}
           {contextMenu.kind === "history" && (
-            <button className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition"
+            <button className="hud-menu-item text-rose-300 hover:bg-rose-500/10"
               onClick={() => { if (confirm("Trade löschen?")) deleteHistory(contextMenu.index); }}>
               Löschen
             </button>
@@ -414,6 +445,8 @@ export default function TrackerPage() {
         <DetailModal pot={data.pots[modal.potIndex]} onClose={() => setModal(null)}
           onCloseTrade={(exitAmt, closeDate) => closeTrade((modal as { type: "detail"; potIndex: number }).potIndex, exitAmt, closeDate)} />
       )}
+
+      <HudGlobalStyles />
     </div>
   );
 }
@@ -422,24 +455,39 @@ export default function TrackerPage() {
 
 function PotCard({ pot, onClick, onContextMenu }: { pot: Pot; onClick: () => void; onContextMenu: (e: React.MouseEvent) => void }) {
   const t = pot.trade;
+  const accent = t ? "#4ade80" : "#94a3b8";
   return (
     <button onClick={onClick} onContextMenu={onContextMenu}
-      className="rounded-2xl border border-black/20 bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md p-5 shadow-sm hover:shadow-md hover:border-black/40 transition text-left">
-      <p className="text-xs text-gray-400 mb-1">Pot {pot.nr}</p>
-      {t ? (
-        <>
-          <p className="text-base font-bold text-black mb-1">{t.asset}</p>
-          <p className="text-sm text-gray-600">{fmtAbs(t.investedChf)} CHF investiert</p>
-          <p className="text-xs text-gray-400">{t.receivedAmt.toFixed(4)} {t.currency}</p>
-          <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100">Offen</span>
-        </>
-      ) : (
-        <>
-          <p className="text-sm text-gray-400 mb-1">Frei</p>
-          {pot.availableChf && <p className="text-xs text-blue-500">{pot.availableChf.toFixed(2)} CHF verfügbar</p>}
-          <span className="inline-block mt-2 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400">Kein Trade</span>
-        </>
-      )}
+      className="hud-panel hud-panel-hover rounded-2xl p-5 text-left"
+      style={{ borderColor: `${accent}44` }}>
+      <span className="hud-corner hud-corner-tl" style={{ borderColor: accent }} />
+      <span className="hud-corner hud-corner-tr" style={{ borderColor: accent }} />
+      <span className="hud-corner hud-corner-bl" style={{ borderColor: accent }} />
+      <span className="hud-corner hud-corner-br" style={{ borderColor: accent }} />
+      <div className="relative z-10">
+        <p className="text-[10px] uppercase tracking-wider text-cyan-300/40 mb-1">Pot {pot.nr}</p>
+        {t ? (
+          <>
+            <p className="text-base font-bold text-cyan-50 mb-1">{t.asset}</p>
+            <p className="text-sm text-cyan-200/60 tabular-nums">{fmtAbs(t.investedChf)} CHF investiert</p>
+            <p className="text-[11px] text-cyan-300/40 tabular-nums">{t.receivedAmt.toFixed(4)} {t.currency}</p>
+            <span
+              className="inline-block mt-2 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full"
+              style={{ color: accent, border: `1px solid ${accent}55`, background: `${accent}1a` }}
+            >
+              Offen
+            </span>
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-cyan-300/40 mb-1">Frei</p>
+            {pot.availableChf && <p className="text-[11px] text-cyan-300 tabular-nums">{pot.availableChf.toFixed(2)} CHF verfügbar</p>}
+            <span className="inline-block mt-2 text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full text-slate-400 border border-slate-500/30 bg-slate-500/10">
+              Kein Trade
+            </span>
+          </>
+        )}
+      </div>
     </button>
   );
 }
@@ -463,8 +511,8 @@ function EntryModal({ pot, onClose, onSubmit }: {
   return (
     <Modal title={`Pot ${pot.nr} — Trade eröffnen`} onClose={onClose}>
       {pot.availableChf && (
-        <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700">
-          Verfügbar: <strong>{pot.availableChf.toFixed(2)} CHF</strong>
+        <div className="mb-4 p-3 rounded-lg bg-cyan-500/10 border border-cyan-400/30 text-xs text-cyan-200">
+          Verfügbar: <strong className="tabular-nums">{pot.availableChf.toFixed(2)} CHF</strong>
         </div>
       )}
       <Field label="Asset"><input value={asset} onChange={e => setAsset(e.target.value)} placeholder="z.B. Nvidia, BTC" className={inputCls} /></Field>
@@ -474,7 +522,7 @@ function EntryModal({ pot, onClose, onSubmit }: {
         <Field label="Betrag erhalten"><input type="number" value={recv} onChange={e => setRecv(e.target.value)} placeholder="460" className={inputCls} /></Field>
         <Field label="Währung"><select value={currency} onChange={e => setCurrency(e.target.value)} className={inputCls}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></Field>
       </div>
-      {fx && <p className="text-xs text-gray-400 mb-3">FX-Kurs: 1 {currency} = {fx} CHF</p>}
+      {fx && <p className="text-[11px] text-cyan-300/40 mb-3 tabular-nums">FX-Kurs: 1 {currency} = {fx} CHF</p>}
       <Field label="Datum"><input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} /></Field>
       <div className="flex gap-2 justify-end mt-5">
         <button onClick={onClose} className={btnCls}>Abbrechen</button>
@@ -513,9 +561,9 @@ function DetailModal({ pot, onClose, onCloseTrade }: {
           { label: "Entry FX", value: t.currency === "CHF" ? "—" : t.entryFx.toFixed(4) },
           { label: "Datum", value: fmtDate(t.entryDate) },
         ].map(k => (
-          <div key={k.label} className="rounded-lg bg-gray-50 border border-black/10 p-3">
-            <p className="text-xs text-gray-400 mb-0.5">{k.label}</p>
-            <p className="text-sm font-medium text-black">{k.value}</p>
+          <div key={k.label} className="rounded-lg bg-black/40 border border-cyan-400/20 p-3">
+            <p className="text-[10px] uppercase tracking-wider text-cyan-300/40 mb-0.5">{k.label}</p>
+            <p className="text-sm font-medium text-cyan-100 tabular-nums">{k.value}</p>
           </div>
         ))}
       </div>
@@ -523,12 +571,12 @@ function DetailModal({ pot, onClose, onCloseTrade }: {
         <input type="number" placeholder={t.receivedAmt.toFixed(4)} onChange={e => updatePreview(e.target.value)} className={inputCls} />
       </Field>
       {preview && (
-        <p className={`text-sm mb-3 ${preview.plChf >= 0 ? "text-green-600" : "text-red-500"}`}>
+        <p className={`text-sm mb-3 tabular-nums ${preview.plChf >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
           P/L: {fmt(preview.plChf)} CHF / {fmtPct(preview.plPct)}
         </p>
       )}
-      <div className="border-t border-black/10 pt-4 mt-2">
-        <p className="text-xs font-medium text-gray-400 mb-3 uppercase tracking-wide">Trade schliessen</p>
+      <div className="border-t border-cyan-400/15 pt-4 mt-2">
+        <p className="text-[10px] font-medium text-cyan-300/40 mb-3 uppercase tracking-wider">Trade schliessen</p>
         <Field label={`Ausstiegsbetrag (${t.currency})`}>
           <input type="number" value={exitAmt} onChange={e => updatePreview(e.target.value)} placeholder="z.B. 580" className={inputCls} />
         </Field>
@@ -538,7 +586,7 @@ function DetailModal({ pot, onClose, onCloseTrade }: {
       </div>
       <div className="flex gap-2 justify-end mt-5">
         <button onClick={onClose} className={btnCls}>Abbrechen</button>
-        <button onClick={handleClose} className="px-4 py-2 rounded-xl text-sm border border-red-200 text-red-600 hover:bg-red-50 transition">Trade schliessen</button>
+        <button onClick={handleClose} className="hud-btn hud-btn-danger">Trade schliessen</button>
       </div>
     </Modal>
   );
@@ -557,7 +605,7 @@ function GraphView({ history, allPots }: { history: GlobalHistoryEntry[]; allPot
     ...allPots.filter(p => p.trade || (p.availableChf ?? 0) > 0).map(p => p.nr),
   ])].sort((a, b) => a - b);
 
-  if (potNrs.length === 0) return <p className="text-gray-400 text-sm text-center py-12">Noch keine Daten für den Graph.</p>;
+  if (potNrs.length === 0) return <p className="text-cyan-300/30 text-sm text-center py-12">— Noch keine Daten für den Graph. —</p>;
 
   const handlePotBtn = (nr: number) => setPotSelection(prev => prev === nr ? "gesamt" : nr);
 
@@ -577,7 +625,7 @@ function GraphView({ history, allPots }: { history: GlobalHistoryEntry[]; allPot
       val: parseFloat(allTimelines.reduce((sum, tl) => sum + interpolateVal(tl, date), 0).toFixed(2)),
       isClose: false,
     }));
-    series.push({ label: "Gesamt", color: "#2563eb", points });
+    series.push({ label: "Gesamt", color: "#22d3ee", points });
   } else if (potSelection === "alle") {
     potNrs.forEach((nr, i) => {
       const tl = getTimeline(nr);
@@ -593,7 +641,7 @@ function GraphView({ history, allPots }: { history: GlobalHistoryEntry[]; allPot
   const allVals = series.flatMap(s => s.points.map(p => p.val));
   const allDates = [...new Set(series.flatMap(s => s.points.map(p => p.date)))].sort();
 
-  if (allDates.length === 0) return <p className="text-gray-400 text-sm text-center py-12">Noch keine Daten.</p>;
+  if (allDates.length === 0) return <p className="text-cyan-300/30 text-sm text-center py-12">— Noch keine Daten. —</p>;
 
   const max = Math.max(...allVals, 0);
   const min = Math.min(...allVals, 0);
@@ -622,17 +670,15 @@ function GraphView({ history, allPots }: { history: GlobalHistoryEntry[]; allPot
   return (
     <div>
       <div className="flex flex-wrap gap-3 mb-3 items-center">
-        <div className="flex gap-2 items-center">
-          <button onClick={() => setMode("pl")}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition ${mode === "pl" ? "bg-black text-white border-black" : "border-black/20 text-gray-500 hover:bg-gray-50"}`}>
+        <div className="flex gap-2 items-center flex-wrap">
+          <button onClick={() => setMode("pl")} className={`hud-btn ${mode === "pl" ? "hud-btn-primary" : "hud-btn-outline"}`}>
             Nur P/L
           </button>
-          <button onClick={() => setMode("total")}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition ${mode === "total" ? "bg-black text-white border-black" : "border-black/20 text-gray-500 hover:bg-gray-50"}`}>
+          <button onClick={() => setMode("total")} className={`hud-btn ${mode === "total" ? "hud-btn-primary" : "hud-btn-outline"}`}>
             Gesamtwert
           </button>
           <button onClick={() => setBrick(b => !b)} title="Brick-Modus"
-            className={`px-3 py-1.5 rounded-lg text-xs border transition flex items-center gap-1.5 ${brick ? "bg-black text-white border-black" : "border-black/20 text-gray-500 hover:bg-gray-50"}`}>
+            className={`hud-btn ${brick ? "hud-btn-primary" : "hud-btn-outline"} inline-flex items-center gap-1.5`}>
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <path d="M1 12 H4 V8 H7 V5 H10 V2 H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
@@ -644,69 +690,75 @@ function GraphView({ history, allPots }: { history: GlobalHistoryEntry[]; allPot
       <div className="flex flex-wrap gap-2 mb-5">
         {(["gesamt", "alle"] as const).map(v => (
           <button key={v} onClick={() => setPotSelection(v)}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition ${potSelection === v ? "bg-black text-white border-black" : "border-black/20 text-gray-500 hover:bg-gray-50"}`}>
+            className={`hud-btn ${potSelection === v ? "hud-btn-primary" : "hud-btn-outline"}`}>
             {v.charAt(0).toUpperCase() + v.slice(1)}
           </button>
         ))}
-        {potNrs.map((nr, i) => (
-          <button key={nr} onClick={() => handlePotBtn(nr)}
-            className={`px-3 py-1.5 rounded-lg text-xs border transition ${potSelection === nr ? "text-white border-transparent" : "border-black/20 text-gray-500 hover:bg-gray-50"}`}
-            style={potSelection === nr ? { background: POT_COLORS[i % POT_COLORS.length] } : {}}>
-            Pot {nr}
-          </button>
-        ))}
+        {potNrs.map((nr, i) => {
+          const color = POT_COLORS[i % POT_COLORS.length];
+          const active = potSelection === nr;
+          return (
+            <button key={nr} onClick={() => handlePotBtn(nr)}
+              className="hud-btn hud-btn-outline"
+              style={active ? { borderColor: color, color, boxShadow: `0 0 14px ${color}55`, background: `${color}1a` } : {}}>
+              Pot {nr}
+            </button>
+          );
+        })}
       </div>
 
-      <div className="rounded-xl border border-black/10 p-4 overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 300 }}>
-          <line x1={pad} y1={pad} x2={pad} y2={pad + innerH} stroke="#e5e7eb" strokeWidth="1" />
-          <line x1={pad} y1={pad + innerH} x2={pad + innerW} y2={pad + innerH} stroke="#e5e7eb" strokeWidth="1" />
+      <div className="hud-panel rounded-xl p-4 overflow-x-auto">
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full relative z-10" style={{ minWidth: 300 }}>
+          <line x1={pad} y1={pad} x2={pad} y2={pad + innerH} stroke="rgba(34,211,238,0.2)" strokeWidth="1" />
+          <line x1={pad} y1={pad + innerH} x2={pad + innerW} y2={pad + innerH} stroke="rgba(34,211,238,0.2)" strokeWidth="1" />
 
           {[0, 0.5, 1].map(t => {
             const v = min + t * range;
             const y = toY(v);
             return (
               <g key={t}>
-                <line x1={pad} y1={y} x2={pad + innerW} y2={y} stroke="#f3f4f6" strokeWidth="1" />
-                <text x={pad - 6} y={y + 4} textAnchor="end" fontSize="10" fill="#9ca3af">{v.toFixed(0)}</text>
+                <line x1={pad} y1={y} x2={pad + innerW} y2={y} stroke="rgba(34,211,238,0.08)" strokeWidth="1" />
+                <text x={pad - 6} y={y + 4} textAnchor="end" fontSize="10" fill="rgba(165,243,252,0.4)">{v.toFixed(0)}</text>
               </g>
             );
           })}
 
           {series.map((s, si) => {
             const path = makePath(s.points, dateToX, toY, brick);
-            return path ? <path key={si} d={path} fill="none" stroke={s.color} strokeWidth="2" /> : null;
+            return path ? (
+              <path key={si} d={path} fill="none" stroke={s.color} strokeWidth="2" style={{ filter: `drop-shadow(0 0 4px ${s.color}88)` }} />
+            ) : null;
           })}
 
           {series.map((s, si) =>
             s.points.filter(p => p.isClose).map((p, i) => (
-              <circle key={`${si}-${i}`} cx={dateToX(p.date)} cy={toY(p.val)} r="3" fill={s.color} />
+              <circle key={`${si}-${i}`} cx={dateToX(p.date)} cy={toY(p.val)} r="3" fill={s.color} style={{ filter: `drop-shadow(0 0 4px ${s.color})` }} />
             ))
           )}
 
           {labelDates.map(d => (
-            <text key={d} x={dateToX(d)} y={H - 6} textAnchor="middle" fontSize="9" fill="#9ca3af">{fmtDate(d)}</text>
+            <text key={d} x={dateToX(d)} y={H - 6} textAnchor="middle" fontSize="9" fill="rgba(165,243,252,0.4)">{fmtDate(d)}</text>
           ))}
         </svg>
       </div>
 
-      <div className="flex gap-4 mt-3 text-xs text-gray-400 flex-wrap items-center">
+      <div className="flex gap-4 mt-3 text-[11px] text-cyan-300/45 flex-wrap items-center">
         {series.map((s, i) => (
           <span key={i} className="flex items-center gap-1">
-            <span style={{ display: "inline-block", width: 16, height: 2, background: s.color }}></span>
+            <span style={{ display: "inline-block", width: 16, height: 2, background: s.color, boxShadow: `0 0 6px ${s.color}` }}></span>
             {s.label}
           </span>
         ))}
         {brick && (
-          <span className="flex items-center gap-1 text-gray-300">
+          <span className="flex items-center gap-1 text-cyan-300/30">
             <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-              <path d="M1 12 H4 V8 H7 V5 H10 V2 H13" stroke="#d1d5db" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M1 12 H4 V8 H7 V5 H10 V2 H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
             Brick-Modus aktiv
           </span>
         )}
       </div>
-      <p className="text-xs text-gray-300 mt-2 text-center">
+      <p className="text-[10px] text-cyan-300/25 mt-2 text-center tracking-wide">
         {mode === "pl" ? "P/L in CHF" : "Gesamtwert in CHF"} · aktualisiert bei Trade-Abschluss
       </p>
     </div>
@@ -715,10 +767,10 @@ function GraphView({ history, allPots }: { history: GlobalHistoryEntry[]; allPot
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4"
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 px-4 font-mono"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="bg-white rounded-2xl border border-black/10 p-6 w-full max-w-sm shadow-xl">
-        <h3 className="text-base font-bold text-black mb-4">{title}</h3>
+      <div className="hud-menu rounded-2xl p-6 w-full max-w-sm max-h-[88vh] overflow-y-auto">
+        <h3 className="text-sm font-bold text-cyan-100 uppercase tracking-wider mb-4">{title}</h3>
         {children}
       </div>
     </div>
@@ -728,7 +780,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-3">
-      <label className="block text-xs text-gray-400 mb-1">{label}</label>
+      <label className="block text-[10px] uppercase tracking-wider text-cyan-300/40 mb-1">{label}</label>
       {children}
     </div>
   );
