@@ -37,12 +37,14 @@ export function TransferLine({
   const flowReverse = activity ? activity.type === "download" : reverse;
   const busy = !!activity;
 
-  // Drei Intensitaetsstufen: Standby laeuft bewusst auch, nur traege und blass
+  // Drei Intensitaetsstufen: Standby laeuft bewusst auch, nur traege und blass.
+  // Die Anzahl teilt die Laufzeit gleichmaessig auf (siehe negative Delays unten),
+  // deshalb bleibt der Abstand zwischen den Paketen in jeder Stufe konstant
   const packets = busy
-    ? { count: 4, durationSec: 1.6, opacity: 0.85, dot: 6, glow: 9 }
+    ? { count: 4, durationSec: 1.6, opacity: 0.85, glow: 9 }
     : active
-    ? { count: 3, durationSec: 2.6, opacity: 0.7, dot: 6, glow: 8 }
-    : { count: 2, durationSec: 6, opacity: 0.4, dot: 4, glow: 5 };
+    ? { count: 3, durationSec: 2.6, opacity: 0.7, glow: 8 }
+    : { count: 2, durationSec: 6, opacity: 0.4, glow: 5 };
 
   const endpoint = (icon: React.ReactNode, caption: string) => (
     <div className="flex flex-col items-center gap-1 shrink-0">
@@ -126,44 +128,48 @@ export function TransferLine({
 
             {/* Datenpakete: laufen immer, nur unterschiedlich dicht/kraeftig.
                 Standby traege und blass, belegte Ablage lebhafter, aktiver Transfer
-                zuegig aber bewusst diskret (kein Blendeffekt) */}
-            {Array.from({ length: packets.count }, (_, i) => (
-              <span
-                key={i}
-                className="absolute top-1/2 -translate-y-1/2 h-2 w-12 pointer-events-none"
-                style={{
-                  // negative Verzoegerung: die Pakete sind ab dem ersten Frame gleichmaessig
-                  // auf der Strecke verteilt, statt nach jedem Zustandswechsel erst
-                  // nacheinander von links einzutroepfeln
-                  animation: `${flowReverse ? "hud-transfer-rev" : "hud-transfer"} ${packets.durationSec}s linear ${
-                    -(i * packets.durationSec) / packets.count
-                  }s infinite`,
-                  opacity: packets.opacity,
-                  transition: "opacity 0.4s ease",
-                }}
-              >
-                {/* Schweif: liegt immer hinter dem Punkt */}
+                zuegig aber bewusst diskret (kein Blendeffekt).
+
+                Der Gruppen-key enthaelt alle Animationsparameter: aendert sich Tempo
+                oder Richtung, werden die Pakete komplett neu aufgebaut statt die
+                Animation mitten im Lauf umzustellen (das liess sie vorher springen).
+                Dank der negativen Verzoegerungen sind sie sofort wieder gleichmaessig
+                auf der Strecke verteilt, der Neuaufbau ist dadurch nicht sichtbar. */}
+            <span key={`${flowReverse ? "rev" : "fwd"}-${packets.durationSec}-${packets.count}`}>
+              {Array.from({ length: packets.count }, (_, i) => (
                 <span
-                  className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[2px] rounded-full"
+                  key={i}
+                  className="absolute top-1/2 -translate-y-1/2 h-2 w-12 pointer-events-none"
                   style={{
-                    background: flowReverse
-                      ? `linear-gradient(90deg, ${color}, transparent)`
-                      : `linear-gradient(90deg, transparent, ${color})`,
+                    animation: `${flowReverse ? "hud-transfer-rev" : "hud-transfer"} ${packets.durationSec}s linear ${
+                      -(i * packets.durationSec) / packets.count
+                    }s infinite`,
+                    opacity: packets.opacity,
+                    willChange: "left",
                   }}
-                />
-                {/* Punkt: sitzt an der Spitze in Laufrichtung */}
-                <span
-                  className="absolute top-1/2 -translate-y-1/2 rounded-full"
-                  style={{
-                    height: packets.dot,
-                    width: packets.dot,
-                    background: "#ecfeff",
-                    boxShadow: `0 0 ${packets.glow}px ${packets.glow / 3}px ${color}`,
-                    ...(flowReverse ? { left: 0 } : { right: 0 }),
-                  }}
-                />
-              </span>
-            ))}
+                >
+                  {/* Schweif: liegt immer hinter dem Punkt */}
+                  <span
+                    className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[2px] rounded-full"
+                    style={{
+                      background: flowReverse
+                        ? `linear-gradient(90deg, ${color}, transparent)`
+                        : `linear-gradient(90deg, transparent, ${color})`,
+                    }}
+                  />
+                  {/* Punkt: sitzt an der Spitze in Laufrichtung. Feste Groesse, damit
+                      er bei einem Zustandswechsel nicht zusaetzlich die Groesse springt */}
+                  <span
+                    className="absolute top-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full"
+                    style={{
+                      background: "#ecfeff",
+                      boxShadow: `0 0 ${packets.glow}px ${packets.glow / 3}px ${color}`,
+                      ...(flowReverse ? { left: 0 } : { right: 0 }),
+                    }}
+                  />
+                </span>
+              ))}
+            </span>
           </div>
 
           {endpoint(
