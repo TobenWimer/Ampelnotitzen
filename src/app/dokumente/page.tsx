@@ -23,6 +23,7 @@ import { FolderTile, DocumentTile } from "@/components/dokumente/Tiles";
 import { ItemNameMenu } from "@/components/dokumente/NameMenu";
 import DokumenteHudStyles from "@/components/dokumente/HudStyles";
 import { uploadDocumentFile, deleteDocumentFile } from "@/components/dokumente/upload";
+import StorageRing from "@/components/dokumente/StorageRing";
 
 /* ======================
    Page
@@ -434,6 +435,11 @@ export default function DokumenteRootPage() {
               {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Datei hochladen"}
             </button>
           </div>
+        </div>
+
+        {/* Speicher-/Upload-Ring */}
+        <div className="mb-8 -mt-4">
+          <StorageRing uid={uid} uploadPct={uploadPct} />
         </div>
 
         {/* Grid */}

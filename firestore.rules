@@ -97,13 +97,15 @@ service cloud.firestore {
       allow create: if isSignedIn()
                     && authUid() == request.resource.data.uid
                     && request.resource.data.keys().hasOnly([
-                      'uid','name','parentPathSlug','color','createdAt','createdAtClient'
+                      'uid','name','parentPathSlug','color','createdAt','createdAtClient',
+                      'docKind','storagePath','downloadURL','mimeType','sizeBytes'
                     ]);
       allow update: if isSignedIn()
                     && authUid() == resource.data.uid
                     && request.resource.data.uid == resource.data.uid
                     && request.resource.data.keys().hasOnly([
-                      'uid','name','parentPathSlug','color','createdAt','createdAtClient'
+                      'uid','name','parentPathSlug','color','createdAt','createdAtClient',
+                      'docKind','storagePath','downloadURL','mimeType','sizeBytes'
                     ]);
       allow delete: if isSignedIn() && authUid() == resource.data.uid;
 

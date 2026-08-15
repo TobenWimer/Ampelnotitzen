@@ -184,6 +184,15 @@ export default function DokumenteHudStyles() {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.25; }
       }
+
+      /* Speicher-/Fortschritts-Ring */
+      .dhud-ring-spin {
+        animation: dhud-spin 8s linear infinite;
+      }
+      @keyframes dhud-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
     `}</style>
   );
 }
