@@ -360,11 +360,14 @@ export default function AnyDepthFolderPage() {
   };
   const handleDownloadDoc = async (d: DocItem) => {
     if (!d.downloadURL) return;
+    setDownloadPct(0);
     try {
-      await downloadDocumentFile(d.downloadURL, d.name);
+      await downloadDocumentFile(d.downloadURL, d.name, setDownloadPct);
     } catch (err) {
       console.error("Download fehlgeschlagen:", err);
       alert("Download fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.");
+    } finally {
+      setDownloadPct(null);
     }
   };
 
