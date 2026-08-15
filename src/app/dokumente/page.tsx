@@ -27,6 +27,7 @@ import { uploadDocumentFile, deleteDocumentFile, downloadDocumentFile } from "@/
 import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
 import { usePreviewPref } from "@/components/dokumente/usePreviewPref";
+import { ImageLightbox } from "@/components/dokumente/ImageLightbox";
 
 /* ======================
    Page
@@ -70,6 +71,9 @@ export default function DokumenteRootPage() {
 
   // UI: Bild-Vorschau an/aus
   const { showPreview, setShowPreview } = usePreviewPref(uid);
+
+  // UI: Bilder-Lightbox (Durchblaettern)
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // ----- Laden: Unterordner auf Root -----
   useEffect(() => {
@@ -382,6 +386,12 @@ export default function DokumenteRootPage() {
     return [...F, ...D].sort((a, b) => a.createdAtClient - b.createdAtClient);
   }, [folders, docs]);
 
+  // Nur Bilder, gleiche Reihenfolge wie im Grid -> Basis fuer die Lightbox
+  const imageDocs = useMemo(
+    () => docs.filter((d) => d.docKind === "file" && d.mimeType?.startsWith("image/")),
+    [docs]
+  );
+
   return (
     <div className="min-h-screen dhud-bg text-cyan-50 relative overflow-hidden font-mono">
       <div className="dhud-grid pointer-events-none absolute inset-0" />
@@ -532,7 +542,14 @@ export default function DokumenteRootPage() {
                 </div>
               ) : (
                 <div key={`d-${it.doc.id}-${idx}`} className="flex flex-col items-stretch gap-2">
-                  <DocumentTile doc={it.doc} showPreview={showPreview} />
+                  <DocumentTile
+                    doc={it.doc}
+                    showPreview={showPreview}
+                    onOpenPreview={() => {
+                      const idx = imageDocs.findIndex((x) => x.id === it.doc.id);
+                      if (idx >= 0) setLightboxIndex(idx);
+                    }}
+                  />
                   <ItemNameMenu
                     name={it.doc.name}
                     color={it.doc.color ?? "blue"}
@@ -551,6 +568,15 @@ export default function DokumenteRootPage() {
           </div>
         )}
       </div>
+
+      {lightboxIndex !== null && (
+        <ImageLightbox
+          images={imageDocs}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onIndexChange={setLightboxIndex}
+        />
+      )}
 
       <DokumenteHudStyles />
     </div>

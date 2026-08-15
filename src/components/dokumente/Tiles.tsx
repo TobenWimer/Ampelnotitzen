@@ -43,8 +43,18 @@ export function FolderTile({ href, name, color }: { href: string; name: string; 
 
 // Zeigt gezeichnete Dokumente (führt in den Editor) und hochgeladene Dateien
 // (öffnet/lädt die Datei direkt) mit passendem Icon in derselben Kachel-Optik.
-// showPreview: zeigt bei Bildern eine echte Thumbnail-Vorschau statt des Icons
-export function DocumentTile({ doc, showPreview }: { doc: DocItem; showPreview?: boolean }) {
+// showPreview: zeigt bei Bildern eine echte Thumbnail-Vorschau statt des Icons.
+// onOpenPreview: bei aktiver Vorschau oeffnet ein Klick auf ein Bild die Lightbox
+// statt eines neuen Tabs (Navigation wird per preventDefault unterdrueckt)
+export function DocumentTile({
+  doc,
+  showPreview,
+  onOpenPreview,
+}: {
+  doc: DocItem;
+  showPreview?: boolean;
+  onOpenPreview?: () => void;
+}) {
   const glow = hudColor(doc.color);
   const isFile = doc.docKind === "file";
   const isImage = isFile && !!doc.mimeType?.startsWith("image/");
@@ -83,8 +93,24 @@ export function DocumentTile({ doc, showPreview }: { doc: DocItem; showPreview?:
   const style = { "--glow": glow } as React.CSSProperties;
 
   if (isFile) {
+    const useLightbox = isImage && showPreview && !!onOpenPreview;
     return (
-      <a href={doc.downloadURL} target="_blank" rel="noopener noreferrer" title={doc.name} className={className} style={style}>
+      <a
+        href={doc.downloadURL}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={doc.name}
+        className={className}
+        style={style}
+        onClick={
+          useLightbox
+            ? (e) => {
+                e.preventDefault();
+                onOpenPreview!();
+              }
+            : undefined
+        }
+      >
         {inner}
       </a>
     );
