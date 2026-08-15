@@ -3,9 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import Protected from "@/components/Protected";
-import { signOut } from "@/lib/firebase";
-import { useState } from "react";
-import { Settings } from "lucide-react";
+import { auth, db, signOut } from "@/lib/firebase";
+import { useEffect, useState } from "react";
+import { Settings, ClipboardCopy, Check } from "lucide-react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { isClipboardExpired } from "@/lib/clipboard";
 
 type Module = {
   key: string;
@@ -70,6 +72,59 @@ function Card({ m }: { m: Module }) {
   );
 }
 
+// Zeigt einen Kopieren-Button im Header, sobald in der Zwischenablage etwas (noch nicht abgelaufenes) liegt
+function ClipboardQuickCopy() {
+  const [uid, setUid] = useState<string | null>(null);
+  const [entry, setEntry] = useState<{ text: string; updatedAt: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [, forceTick] = useState(0);
+
+  useEffect(() => {
+    const off = auth.onAuthStateChanged((u) => setUid(u?.uid ?? null));
+    return off;
+  }, []);
+
+  useEffect(() => {
+    if (!uid) { setEntry(null); return; }
+    const ref = doc(db, "clipboard", uid);
+    const off = onSnapshot(
+      ref,
+      (snap) => setEntry(snap.exists() ? (snap.data() as { text: string; updatedAt: number }) : null),
+      () => setEntry(null)
+    );
+    return off;
+  }, [uid]);
+
+  // Ablauf auch ohne neuen Snapshot erkennen, falls kein anderes Gerät gerade aufräumt
+  useEffect(() => {
+    const t = setInterval(() => forceTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!entry || isClipboardExpired(entry.updatedAt)) return null;
+  const text = entry.text;
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Zugriff verweigert: kein Feedback nötig, Nutzer versucht es erneut
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      title="Aus der Zwischenablage kopieren"
+      className="p-2 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md hover:bg-white/60 transition flex items-center gap-1.5"
+    >
+      {copied ? <Check size={20} className="text-green-600" /> : <ClipboardCopy size={20} className="text-gray-800" />}
+    </button>
+  );
+}
+
 function Header() {
   const [open, setOpen] = useState(false);
 
@@ -80,30 +135,33 @@ function Header() {
         <h1 className="text-2xl font-bold text-black">OneStepBehind</h1>
       </div>
 
-      <div className="relative">
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="p-2 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md hover:bg-white/60 transition"
-          aria-haspopup="menu"
-          aria-expanded={open}
-        >
-          <Settings size={20} className="text-gray-800" />
-        </button>
-
-        {open && (
-          <div
-            role="menu"
-            className="absolute right-0 mt-2 w-40 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/70 via-white/40 to-gray-100/60 backdrop-blur-md shadow-lg p-2"
+      <div className="flex items-center gap-2">
+        <ClipboardQuickCopy />
+        <div className="relative">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="p-2 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md hover:bg-white/60 transition"
+            aria-haspopup="menu"
+            aria-expanded={open}
           >
-            <button
-              onClick={signOut}
-              className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/70 text-gray-900 text-sm"
-              role="menuitem"
+            <Settings size={20} className="text-gray-800" />
+          </button>
+
+          {open && (
+            <div
+              role="menu"
+              className="absolute right-0 mt-2 w-40 rounded-xl border border-black/20 bg-gradient-to-br from-gray-200/70 via-white/40 to-gray-100/60 backdrop-blur-md shadow-lg p-2"
             >
-              Abmelden
-            </button>
-          </div>
-        )}
+              <button
+                onClick={signOut}
+                className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/70 text-gray-900 text-sm"
+                role="menuitem"
+              >
+                Abmelden
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

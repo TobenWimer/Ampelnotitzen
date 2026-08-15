@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { CLIPBOARD_TTL_MS, isClipboardExpired } from "@/lib/clipboard";
 
 type ClipboardData = {
   text: string;
@@ -62,11 +63,20 @@ export default function ZwischenablagePage() {
     return unsub;
   }, [user]);
 
-  // "vor Xs" alle paar Sekunden auffrischen
+  // "vor Xs" auffrischen und abgelaufenen Inhalt aufräumen
   useEffect(() => {
-    const t = setInterval(() => forceTick((n) => n + 1), 5000);
+    const t = setInterval(() => {
+      forceTick((n) => n + 1);
+      if (user && data && isClipboardExpired(data.updatedAt)) {
+        deleteDoc(doc(db, "clipboard", user.uid)).catch(() => {});
+      }
+    }, 5000);
     return () => clearInterval(t);
-  }, []);
+  }, [user, data]);
+
+  const expired = data ? isClipboardExpired(data.updatedAt) : false;
+  const visible = expired ? null : data;
+  const remainingMin = visible ? Math.max(1, Math.ceil((CLIPBOARD_TTL_MS - (Date.now() - visible.updatedAt)) / 60000)) : 0;
 
   const flash = useCallback((msg: string) => {
     setStatus(msg);
@@ -99,14 +109,21 @@ export default function ZwischenablagePage() {
   }, [manualText, save, flash]);
 
   const handleCopy = useCallback(async () => {
-    if (!data?.text) return;
+    if (!visible?.text) return;
     try {
-      await navigator.clipboard.writeText(data.text);
+      await navigator.clipboard.writeText(visible.text);
       flash("Kopiert.");
     } catch {
       flash("Kopieren nicht möglich.");
     }
-  }, [data, flash]);
+  }, [visible, flash]);
+
+  const handleDelete = useCallback(async () => {
+    if (!user || !visible) return;
+    if (!confirm("Zwischenablage wirklich löschen?")) return;
+    await deleteDoc(doc(db, "clipboard", user.uid));
+    flash("Gelöscht.");
+  }, [user, visible, flash]);
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-white">
@@ -144,10 +161,17 @@ export default function ZwischenablagePage() {
           </button>
           <button
             onClick={handleCopy}
-            disabled={!data?.text}
+            disabled={!visible?.text}
             className="px-4 py-2 rounded-xl text-sm border border-black/20 text-gray-700 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Kopieren
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={!visible?.text}
+            className="px-4 py-2 rounded-xl text-sm border border-red-200 text-red-600 hover:bg-red-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Löschen
           </button>
           {status && <span className="text-sm text-gray-500">{status}</span>}
         </div>
@@ -183,15 +207,20 @@ export default function ZwischenablagePage() {
         )}
 
         <div className="rounded-2xl border border-black/20 bg-gradient-to-br from-gray-200/55 via-white/35 to-gray-100/45 backdrop-blur-md p-4 shadow-sm">
-          {data?.text ? (
+          {visible?.text ? (
             <>
-              <p className="text-sm text-black whitespace-pre-wrap break-words">{data.text}</p>
-              <p className="text-xs text-gray-400 mt-3">Aktualisiert {timeAgo(data.updatedAt)}</p>
+              <p className="text-sm text-black whitespace-pre-wrap break-words">{visible.text}</p>
+              <p className="text-xs text-gray-400 mt-3">
+                Aktualisiert {timeAgo(visible.updatedAt)} · läuft ab in {remainingMin}min
+              </p>
             </>
           ) : (
             <p className="text-sm text-gray-400 text-center py-8">Noch nichts eingefügt.</p>
           )}
         </div>
+        <p className="text-xs text-gray-300 text-center mt-3">
+          Inhalt löscht sich automatisch nach 3 Minuten.
+        </p>
       </div>
     </div>
   );
