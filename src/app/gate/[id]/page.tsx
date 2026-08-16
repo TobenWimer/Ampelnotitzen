@@ -3,20 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { File as FileIcon, ShieldCheck, Download, FileArchive, Share2 } from "lucide-react";
+import { File as FileIcon, ShieldCheck, Download, FileArchive } from "lucide-react";
 import { subscribeGate, registerGateDownload, isGateExpired, type Gate } from "@/lib/gate";
 import { downloadFileFromUrl } from "@/lib/download";
-import {
-  downloadAllFiles,
-  downloadFilesAsZip,
-  prepareShareFiles,
-  shareNow,
-  canShareFiles,
-  MAX_SHARE_FILES,
-} from "@/lib/shareFiles";
+import { downloadAllFiles, downloadFilesAsZip } from "@/lib/shareFiles";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 import { GateBeam } from "@/components/hud/GateBeam";
 import { MediaLightbox } from "@/components/hud/MediaLightbox";
+import { ShareBatches } from "@/components/hud/ShareBatches";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -44,7 +38,6 @@ export default function GatePage() {
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<number | null>(null);
   const [done, setDone] = useState(false);
-  const [shareReady, setShareReady] = useState<File[] | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [, forceTick] = useState(0);
 
@@ -92,50 +85,6 @@ export default function GatePage() {
     [gateId]
   );
 
-  // Teilen in zwei Schritten: erst herunterladen, dann per frischem Klick teilen.
-  // navigator.share() braucht eine Nutzergeste, die waehrend des Herunterladens
-  // abgelaufen waere - deshalb erscheint danach ein eigener "Jetzt teilen"-Knopf
-  const handlePrepareShare = useCallback(async () => {
-    const current = gate?.files ?? [];
-    if (current.length === 0) return;
-    setProgress(0);
-    try {
-      const prepared = await prepareShareFiles(current, setProgress);
-      setShareReady(prepared);
-      setDone(true);
-      setTimeout(() => setDone(false), 1200);
-    } catch (err) {
-      if (err instanceof Error && err.message === "SHARE_TOO_MANY") {
-        alert(
-          `Zu viele Dateien zum Teilen (${gate?.files.length}). ` +
-            `Das System-Teilen schafft höchstens ${MAX_SHARE_FILES} auf einmal. ` +
-            `Bitte "Als ZIP" nutzen.`
-        );
-        return;
-      }
-      if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
-        alert("Dieses Gerät unterstützt das Teilen von Dateien nicht. Bitte herunterladen.");
-        return;
-      }
-      console.error("Teilen vorbereiten fehlgeschlagen:", err);
-      alert("Teilen fehlgeschlagen.");
-    } finally {
-      setProgress(null);
-    }
-  }, [gate]);
-
-  const handleShareNow = useCallback(async () => {
-    if (!shareReady) return;
-    try {
-      await shareNow(shareReady);
-      registerGateDownload(gateId);
-      setShareReady(null);
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return; // Nutzer hat abgebrochen
-      console.error("Teilen fehlgeschlagen:", err);
-      alert("Teilen fehlgeschlagen.");
-    }
-  }, [shareReady, gateId]);
 
   const shell = (children: React.ReactNode) => (
     <div className="min-h-screen hud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono">
@@ -230,23 +179,12 @@ export default function GatePage() {
           Als ZIP
         </button>
 
-        {canShareFiles() && (
-          <button
-            className={`hud-btn inline-flex items-center gap-1.5 ${shareReady ? "hud-alarm" : ""}`}
-            disabled={progress !== null}
-            style={{
-              borderColor: "rgba(74,222,128,0.6)",
-              background: "linear-gradient(135deg, rgba(74,222,128,0.28), rgba(74,222,128,0.08))",
-              color: "#dcfce7",
-              textShadow: "0 0 8px rgba(74,222,128,0.6)",
-            }}
-            onClick={shareReady ? handleShareNow : handlePrepareShare}
-          >
-            <Share2 size={13} />
-            {shareReady ? "Jetzt teilen" : "Teilen"}
-          </button>
-        )}
-
+        {/* Bei bis zu 20 Dateien ein Knopf, darueber automatisch in Stapel geteilt */}
+        <ShareBatches
+          files={files}
+          onShared={() => registerGateDownload(gateId)}
+          onError={(m) => alert(m)}
+        />
       </div>
 
       {(progress !== null || done) && <GateBeam pct={progress ?? 100} done={done} />}

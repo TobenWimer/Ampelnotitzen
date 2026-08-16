@@ -18,16 +18,10 @@ import {
   ClipboardData,
 } from "@/lib/clipboard";
 import { downloadFileFromUrl } from "@/lib/download";
-import {
-  downloadAllFiles,
-  downloadFilesAsZip,
-  prepareShareFiles,
-  shareNow,
-  canShareFiles,
-  MAX_SHARE_FILES,
-} from "@/lib/shareFiles";
+import { downloadAllFiles, downloadFilesAsZip } from "@/lib/shareFiles";
 import { checkQuota } from "@/lib/storageUsage";
 import { TransferLine } from "@/components/hud/TransferLine";
+import { ShareBatches } from "@/components/hud/ShareBatches";
 import { IntertransferPanel } from "@/components/hud/IntertransferPanel";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 
@@ -61,9 +55,6 @@ export default function ZwischenablagePage() {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
-  // Vorbereitete Dateien fuers Teilen. navigator.share() braucht eine frische
-  // Nutzergeste, die waehrend des Herunterladens abgelaufen waere
-  const [shareReady, setShareReady] = useState<File[] | null>(null);
   const [, forceTick] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -284,18 +275,8 @@ export default function ZwischenablagePage() {
       try {
         await fn(setDownloadPct);
       } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return; // Teilen abgebrochen
-        if (err instanceof Error && err.message === "SHARE_TOO_MANY") {
-          alert(
-            `Zu viele Dateien zum Teilen. Das System-Teilen schafft höchstens ` +
-              `${MAX_SHARE_FILES} auf einmal. Bitte "Als ZIP herunterladen" nutzen.`
-          );
-          return;
-        }
-        if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
-          alert("Dieses Gerät unterstützt das Teilen von Dateien nicht. Bitte herunterladen.");
-          return;
-        }
+        // Teilen laeuft ueber ShareBatches und meldet Fehler selbst - hier bleiben
+        // nur noch Download und Zip uebrig
         console.error(`${label} fehlgeschlagen:`, err);
         alert(`${label} fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.`);
       } finally {
@@ -317,18 +298,6 @@ export default function ZwischenablagePage() {
     flash(!noExpiry ? "Ablauf aus." : "Ablauf an.");
   }, [user, noExpiry, flash]);
 
-  const handleShareNow = useCallback(async () => {
-    if (!shareReady) return;
-    setMenuOpen(false);
-    try {
-      await shareNow(shareReady);
-      setShareReady(null);
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") return; // Nutzer hat abgebrochen
-      console.error("Teilen fehlgeschlagen:", err);
-      alert("Teilen fehlgeschlagen.");
-    }
-  }, [shareReady]);
 
   const handleDelete = useCallback(async () => {
     if (!user || !visible) return;
@@ -476,21 +445,6 @@ export default function ZwischenablagePage() {
                     Als ZIP herunterladen
                   </button>
 
-                  {canShareFiles() && (
-                    <button
-                      className="hud-menu-item"
-                      onClick={
-                        shareReady
-                          ? handleShareNow
-                          : () =>
-                              runFileAction("Teilen", async (p) => {
-                                setShareReady(await prepareShareFiles(files, p));
-                              })
-                      }
-                    >
-                      {shareReady ? "Jetzt teilen" : "Teilen"}
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -505,6 +459,14 @@ export default function ZwischenablagePage() {
           </button>
           {status && <span className="text-xs text-cyan-300/70 tracking-wide">{">> " + status}</span>}
         </div>
+
+        {/* Teilen ausserhalb des Dropdowns: bei vielen Dateien wird in Stapel geteilt,
+            dafuer braucht es mehrere Knoepfe nebeneinander */}
+        {hasFiles && (
+          <div className="mb-5">
+            <ShareBatches files={files} onError={(m) => alert(m)} />
+          </div>
+        )}
 
         {manualMode && (
           <div className="zwa-panel rounded-2xl p-4 mb-6">
