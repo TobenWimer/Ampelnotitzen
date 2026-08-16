@@ -18,7 +18,14 @@ import {
   ClipboardData,
 } from "@/lib/clipboard";
 import { downloadFileFromUrl } from "@/lib/download";
-import { downloadAllFiles, downloadFilesAsZip, prepareShareFiles, shareNow, canShareFiles } from "@/lib/shareFiles";
+import {
+  downloadAllFiles,
+  downloadFilesAsZip,
+  prepareShareFiles,
+  shareNow,
+  canShareFiles,
+  MAX_SHARE_FILES,
+} from "@/lib/shareFiles";
 import { checkQuota } from "@/lib/storageUsage";
 import { TransferLine } from "@/components/hud/TransferLine";
 import { IntertransferPanel } from "@/components/hud/IntertransferPanel";
@@ -278,6 +285,13 @@ export default function ZwischenablagePage() {
         await fn(setDownloadPct);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return; // Teilen abgebrochen
+        if (err instanceof Error && err.message === "SHARE_TOO_MANY") {
+          alert(
+            `Zu viele Dateien zum Teilen. Das System-Teilen schafft höchstens ` +
+              `${MAX_SHARE_FILES} auf einmal. Bitte "Als ZIP herunterladen" nutzen.`
+          );
+          return;
+        }
         if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
           alert("Dieses Gerät unterstützt das Teilen von Dateien nicht. Bitte herunterladen.");
           return;

@@ -6,7 +6,14 @@ import Link from "next/link";
 import { File as FileIcon, ShieldCheck, Download, FileArchive, Share2 } from "lucide-react";
 import { subscribeGate, registerGateDownload, isGateExpired, type Gate } from "@/lib/gate";
 import { downloadFileFromUrl } from "@/lib/download";
-import { downloadAllFiles, downloadFilesAsZip, prepareShareFiles, shareNow, canShareFiles } from "@/lib/shareFiles";
+import {
+  downloadAllFiles,
+  downloadFilesAsZip,
+  prepareShareFiles,
+  shareNow,
+  canShareFiles,
+  MAX_SHARE_FILES,
+} from "@/lib/shareFiles";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 import { GateBeam } from "@/components/hud/GateBeam";
 import { MediaLightbox } from "@/components/hud/MediaLightbox";
@@ -98,6 +105,14 @@ export default function GatePage() {
       setDone(true);
       setTimeout(() => setDone(false), 1200);
     } catch (err) {
+      if (err instanceof Error && err.message === "SHARE_TOO_MANY") {
+        alert(
+          `Zu viele Dateien zum Teilen (${gate?.files.length}). ` +
+            `Das System-Teilen schafft höchstens ${MAX_SHARE_FILES} auf einmal. ` +
+            `Bitte "Als ZIP" nutzen.`
+        );
+        return;
+      }
       if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
         alert("Dieses Gerät unterstützt das Teilen von Dateien nicht. Bitte herunterladen.");
         return;

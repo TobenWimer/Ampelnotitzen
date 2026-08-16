@@ -14,9 +14,15 @@ export type UploadedFile = {
 // Dateien war das die Hauptbremse
 const RESUMABLE_THRESHOLD = 4 * 1024 * 1024;
 
-// Wie viele Dateien gleichzeitig laufen. Hoeher bringt bei kleinen Dateien kaum noch
-// etwas und riskiert, dass der Browser die Verbindungen selbst drosselt
+// Wie viele Dateien gleichzeitig laufen
 const CONCURRENCY = 4;
+
+// Mobile Verbindungen brechen einzelne Uploads gelegentlich ab (Firebase meldet dann
+// storage/unknown oder storage/retry-limit-exceeded). Ein paar Wiederholungen fangen
+// das ab, statt den ganzen Vorgang scheitern zu lassen
+const MAX_ATTEMPTS = 3;
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Laedt mehrere Dateien parallel hoch und meldet den Fortschritt ueber alle hinweg
 // bytegenau. Kleine Dateien gehen als einfacher Upload raus (ein Request), grosse
@@ -41,49 +47,66 @@ export async function uploadFilesToStorage({
     onProgress?.(Math.min(100, Math.round((done / totalBytes) * 100)));
   };
 
-  const results = new Array<UploadedFile>(files.length);
+  const paths = files.map((f, i) => pathFor(f, i));
   let next = 0;
+
+  async function uploadOne(index: number) {
+    const file = files[index];
+    const storageRef = ref(storage, paths[index]);
+    const metadata = { contentType: file.type || "application/octet-stream" };
+
+    for (let attempt = 1; ; attempt++) {
+      try {
+        if (file.size >= RESUMABLE_THRESHOLD) {
+          await new Promise<void>((resolve, reject) => {
+            const task = uploadBytesResumable(storageRef, file, metadata);
+            task.on(
+              "state_changed",
+              (snap) => {
+                progressPerFile[index] = snap.bytesTransferred;
+                report();
+              },
+              reject,
+              () => resolve()
+            );
+          });
+        } else {
+          await uploadBytes(storageRef, file, metadata);
+          progressPerFile[index] = file.size;
+          report();
+        }
+        return;
+      } catch (err) {
+        const code = (err as { code?: string })?.code ?? "";
+        // Zu grosse Datei oder fehlende Berechtigung wird durch Wiederholen nicht besser
+        if (code === "storage/unauthorized" || attempt >= MAX_ATTEMPTS) throw err;
+        progressPerFile[index] = 0;
+        report();
+        await wait(attempt * 800);
+      }
+    }
+  }
 
   async function worker() {
     while (true) {
       const index = next++;
       if (index >= files.length) return;
-
-      const file = files[index];
-      const storagePath = pathFor(file, index);
-      const storageRef = ref(storage, storagePath);
-      const metadata = { contentType: file.type || "application/octet-stream" };
-
-      if (file.size >= RESUMABLE_THRESHOLD) {
-        await new Promise<void>((resolve, reject) => {
-          const task = uploadBytesResumable(storageRef, file, metadata);
-          task.on(
-            "state_changed",
-            (snap) => {
-              progressPerFile[index] = snap.bytesTransferred;
-              report();
-            },
-            reject,
-            () => resolve()
-          );
-        });
-      } else {
-        await uploadBytes(storageRef, file, metadata);
-        progressPerFile[index] = file.size;
-        report();
-      }
-
-      results[index] = {
-        fileName: file.name,
-        storagePath,
-        downloadURL: await getDownloadURL(storageRef),
-        mimeType: metadata.contentType,
-        sizeBytes: file.size,
-      };
+      await uploadOne(index);
     }
   }
 
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker));
+
+  // Download-URLs erst am Schluss und alle gleichzeitig. Vorher lief pro Datei ein
+  // eigener Roundtrip mitten zwischen den Uploads, das hat den Ablauf ausgebremst
+  const urls = await Promise.all(paths.map((p) => getDownloadURL(ref(storage, p))));
+
   onProgress?.(100);
-  return results;
+  return files.map((file, i) => ({
+    fileName: file.name,
+    storagePath: paths[i],
+    downloadURL: urls[i],
+    mimeType: file.type || "application/octet-stream",
+    sizeBytes: file.size,
+  }));
 }

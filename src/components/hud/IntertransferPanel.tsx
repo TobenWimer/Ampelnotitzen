@@ -16,6 +16,7 @@ import {
   gatePath,
   isGateExpired,
   GATE_DURATIONS,
+  MAX_GATE_FILES,
   type Gate,
 } from "@/lib/gate";
 import { GateReactors, type GateStage } from "@/components/hud/GateReactors";
@@ -101,6 +102,16 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
     if (!uid || pendingFiles.length === 0) return;
     setQuotaError(null);
 
+    // Dateianzahl vor dem Upload pruefen: die Firestore-Regel begrenzt ein Gate auf
+    // MAX_GATE_FILES. Ohne diese Pruefung laufen erst alle Uploads durch und der
+    // Eintrag wird danach abgelehnt - die Zeit waere komplett verloren
+    if (pendingFiles.length > MAX_GATE_FILES) {
+      setQuotaError(
+        `${pendingFiles.length} Dateien sind zu viele. Pro Gate sind maximal ${MAX_GATE_FILES} möglich.`
+      );
+      return;
+    }
+
     // Erst pruefen, dann hochladen - ein abgebrochener Upload wuerde sonst Bytes
     // im Storage hinterlassen, zu denen es kein Gate gibt
     const quota = await checkQuota(uid, pendingFiles);
@@ -155,6 +166,16 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
       if (!uid || !gate || files.length === 0) return;
 
       setQuotaError(null);
+
+      // Auch beim Nachlegen die Gesamtzahl im Gate pruefen, nicht nur die neuen Dateien
+      if (gate.files.length + files.length > MAX_GATE_FILES) {
+        setQuotaError(
+          `Das Gate haette dann ${gate.files.length + files.length} Dateien. ` +
+            `Maximal sind ${MAX_GATE_FILES} möglich.`
+        );
+        return;
+      }
+
       const quota = await checkQuota(uid, files);
       if (!quota.ok) {
         setQuotaError(quota.message);

@@ -20,6 +20,15 @@ export type Gate = {
   downloadCount: number;
 };
 
+// Muss zur files.size()-Grenze in firestore.rules passen. Der Client prueft es vorab,
+// sonst laedt jemand erst alle Dateien hoch und die Regel lehnt danach den Eintrag ab -
+// der Upload waere komplett umsonst gewesen.
+//
+// Die harte Schranke ist die Firestore-Dokumentgroesse von 1 MiB. Ein Dateieintrag
+// (Name, Pfad, Download-URL, Typ, Groesse) belegt grob 500 Byte, 300 Eintraege also
+// rund 150 KB - reichlich Abstand
+export const MAX_GATE_FILES = 300;
+
 export const GATE_DURATIONS = [
   { label: "3 Minuten", ms: 3 * 60 * 1000 },
   { label: "5 Minuten", ms: 5 * 60 * 1000 },

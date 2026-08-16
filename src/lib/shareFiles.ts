@@ -104,10 +104,18 @@ export function canShareFiles() {
 // Getrennt, weil navigator.share() eine frische Nutzergeste braucht: das Herunterladen
 // dauert je nach Groesse mehrere Sekunden, danach ist die Geste vom urspruenglichen
 // Klick abgelaufen und der Aufruf scheitert mit NotAllowedError
+// Das System-Teilen-Sheet vertraegt nur eine begrenzte Zahl Dateien - Android bricht
+// bei vielen kommentarlos ab, und alle vorher in den Arbeitsspeicher zu laden sprengt
+// auf dem Handy ohnehin den Rahmen. Ab hier lieber auf ZIP verweisen
+export const MAX_SHARE_FILES = 20;
+
 export async function prepareShareFiles(
   files: ClipboardFile[],
   onProgress?: (pct: number) => void
 ): Promise<File[]> {
+  if (files.length > MAX_SHARE_FILES) {
+    throw new Error("SHARE_TOO_MANY");
+  }
   const blobs = await fetchAll(files, onProgress);
   const shareable = blobs.map(({ file, blob }) => new File([blob], file.fileName, { type: file.mimeType }));
 
