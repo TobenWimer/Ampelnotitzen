@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { onSnapshot, query, where } from "firebase/firestore";
-import { Link2, Check, Trash2, Eye, Plus } from "lucide-react";
+import { Link2, Check, Trash2, Eye, Plus, Share2 } from "lucide-react";
+
+// Teilen ohne Dateien braucht nur navigator.share, nicht canShare({files})
+const canShareLink = () => typeof navigator !== "undefined" && !!navigator.share;
 import {
   createGate,
   closeGate,
@@ -176,6 +179,23 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
     [uid]
   );
 
+  // Link teilen statt kopieren: geht ohne vorheriges Herunterladen direkt im
+  // Klick-Handler, die Nutzergeste bleibt also erhalten (anders als beim Teilen
+  // von Dateien, das erst laden muss)
+  const handleShareLink = useCallback(async (gate: Gate) => {
+    const url = gateUrl(gate.id);
+    try {
+      await navigator.share({
+        title: "Dateien für dich",
+        text: gate.note ? gate.note : "Hier kannst du die Dateien abholen:",
+        url,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return; // Nutzer hat abgebrochen
+      console.error("Link teilen fehlgeschlagen:", err);
+    }
+  }, []);
+
   const handleClose = useCallback(async (gate: Gate) => {
     if (!confirm("Gate jetzt schliessen? Der Link wird sofort ungültig und die Dateien werden gelöscht.")) return;
     // Dokument zuerst weg: die Empfangsseite haengt per onSnapshot daran und macht
@@ -322,42 +342,60 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
                     </div>
                   </div>
 
+                  {/* Nur Symbole, Bedeutung steht im title/aria-label. Haelt die Zeile
+                      schmal genug, dass alle Aktionen auch auf dem Handy nebeneinander passen */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      onClick={() => handleCopy(g)}
-                      className="zwa-btn zwa-btn-outline inline-flex items-center gap-1.5"
-                      title="Link kopieren"
-                    >
-                      {copiedId === g.id ? <Check size={13} /> : <Link2 size={13} />}
-                      {copiedId === g.id ? "Kopiert" : "Link"}
-                    </button>
                     <button
                       onClick={() => {
                         addTargetRef.current = g;
                         addInputRef.current?.click();
                       }}
-                      className="zwa-btn zwa-btn-outline inline-flex items-center gap-1.5"
+                      className="zwa-btn zwa-btn-outline zwa-icon-btn"
                       disabled={uploadPct !== null}
                       title="Weitere Dateien in dieses Gate legen"
+                      aria-label="Dateien nachlegen"
                     >
-                      <Plus size={13} />
+                      <Plus size={15} />
                     </button>
+
+                    <button
+                      onClick={() => handleCopy(g)}
+                      className="zwa-btn zwa-btn-outline zwa-icon-btn"
+                      title="Link kopieren"
+                      aria-label="Link kopieren"
+                    >
+                      {copiedId === g.id ? <Check size={15} /> : <Link2 size={15} />}
+                    </button>
+
+                    {canShareLink() && (
+                      <button
+                        onClick={() => handleShareLink(g)}
+                        className="zwa-btn zwa-btn-outline zwa-icon-btn"
+                        title="Link teilen (WhatsApp, Mail, …)"
+                        aria-label="Link teilen"
+                      >
+                        <Share2 size={15} />
+                      </button>
+                    )}
+
                     <a
                       href={gatePath(g.id)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="zwa-btn zwa-btn-outline inline-flex items-center gap-1.5"
+                      className="zwa-btn zwa-btn-outline zwa-icon-btn"
                       title="Gastansicht öffnen (so sehen es die Empfänger)"
+                      aria-label="Gastansicht öffnen"
                     >
-                      <Eye size={13} />
-                      Ansicht
+                      <Eye size={15} />
                     </a>
+
                     <button
                       onClick={() => handleClose(g)}
-                      className="zwa-btn zwa-btn-danger inline-flex items-center gap-1.5"
+                      className="zwa-btn zwa-btn-danger zwa-icon-btn"
                       title="Gate sofort schliessen"
+                      aria-label="Gate schliessen"
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={15} />
                     </button>
                   </div>
                 </div>

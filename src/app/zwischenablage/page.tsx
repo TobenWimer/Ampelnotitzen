@@ -677,6 +677,15 @@ function HudStyles() {
         box-shadow: 0 0 14px rgba(244,63,94,0.4);
         color: #fecdd3;
       }
+      /* reine Symbol-Buttons: quadratisch statt breit, damit mehrere nebeneinander passen */
+      .zwa-icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.25rem;
+        height: 2.25rem;
+        padding: 0;
+      }
       @keyframes zwa-pulse-glow {
         0%, 100% { box-shadow: 0 0 14px rgba(34,211,238,0.25), inset 0 0 24px rgba(34,211,238,0.04); }
         50% { box-shadow: 0 0 26px rgba(34,211,238,0.45), inset 0 0 32px rgba(34,211,238,0.08); }
