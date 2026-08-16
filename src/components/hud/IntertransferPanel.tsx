@@ -115,7 +115,12 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
       setCreating(false);
     } catch (err) {
       console.error("Gate anlegen fehlgeschlagen:", err);
-      setQuotaError("Gate konnte nicht angelegt werden.");
+      const code = (err as { code?: string })?.code;
+      setQuotaError(
+        code === "storage/unauthorized"
+          ? "Upload vom Server abgelehnt. Datei zu gross oder Storage-Regeln nicht aktuell."
+          : `Gate konnte nicht angelegt werden${code ? ` (${code})` : ""}.`
+      );
     } finally {
       setUploadPct(null);
     }

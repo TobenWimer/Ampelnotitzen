@@ -6,6 +6,11 @@ import { clipboardFiles, type ClipboardData } from "@/lib/clipboard";
 // Upload nicht exakt an der Kante scheitert und noch Luft fuer Firestore-Overhead bleibt.
 export const STORAGE_LIMIT_BYTES = 4.6 * 1024 * 1024 * 1024;
 
+// Muss mit der Obergrenze in storage.rules uebereinstimmen. Wird sie dort geaendert,
+// hier nachziehen - sonst laesst der Client etwas durch, das der Server ablehnt,
+// und der Upload bricht mitten drin mit einer nichtssagenden Meldung ab
+export const MAX_FILE_BYTES = 1024 * 1024 * 1024;
+
 export function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -52,6 +57,22 @@ export type QuotaCheck = {
 // im Storage hinterlassen, die keine Metadaten haben und niemandem auffallen
 export async function checkQuota(uid: string, files: File[]): Promise<QuotaCheck> {
   const incoming = files.reduce((sum, f) => sum + f.size, 0);
+
+  // Zuerst die Einzeldatei-Grenze, ohne Firestore-Abfrage: eine zu grosse Datei
+  // scheitert ohnehin an den Storage-Regeln, das muss man nicht erst herausfinden
+  const tooBig = files.find((f) => f.size > MAX_FILE_BYTES);
+  if (tooBig) {
+    return {
+      ok: false,
+      used: 0,
+      incoming,
+      limit: STORAGE_LIMIT_BYTES,
+      message:
+        `„${tooBig.name}" ist mit ${formatBytes(tooBig.size)} zu gross. ` +
+        `Pro Datei sind maximal ${formatBytes(MAX_FILE_BYTES)} möglich.`,
+    };
+  }
+
   const used = await getUsedBytes(uid);
   const ok = used + incoming <= STORAGE_LIMIT_BYTES;
 

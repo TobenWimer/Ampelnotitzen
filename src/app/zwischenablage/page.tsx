@@ -152,7 +152,14 @@ export default function ZwischenablagePage() {
       flash(files.length === 1 ? "Datei eingefügt." : `${files.length} Dateien eingefügt.`);
     } catch (err) {
       console.error("Clipboard-Upload fehlgeschlagen:", err);
-      setQuotaError("Datei-Upload fehlgeschlagen.");
+      // Firebase-Fehlercode mitgeben statt nur "fehlgeschlagen" - sonst raetselt man,
+      // ob es an der Groesse, den Regeln oder der Verbindung lag
+      const code = (err as { code?: string })?.code;
+      setQuotaError(
+        code === "storage/unauthorized"
+          ? "Upload vom Server abgelehnt. Datei zu gross oder Storage-Regeln nicht aktuell."
+          : `Datei-Upload fehlgeschlagen${code ? ` (${code})` : ""}.`
+      );
     } finally {
       setUploadPct(null);
     }

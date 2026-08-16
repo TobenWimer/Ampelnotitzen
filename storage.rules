@@ -3,10 +3,14 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     // Storage-Regeln koennen nicht auf Firestore zugreifen, die Allowlist laesst sich
-    // hier also nicht pruefen. Als Schutz gegen Speicherfrass dienen deshalb harte
-    // Groessenobergrenzen pro Datei. Ohne Firestore-Zugriff kann ein nicht
-    // freigeschaltetes Konto ausserdem keine Metadaten anlegen und die Dateien
-    // dadurch weder sehen noch teilen.
+    // hier also nicht pruefen. Als Schutz gegen Speicherfrass dient deshalb eine
+    // Obergrenze pro Datei. Ohne Firestore-Zugriff kann ein nicht freigeschaltetes
+    // Konto ausserdem keine Metadaten anlegen und die Dateien weder sehen noch teilen.
+    //
+    // 1 GB ist bewusst grosszuegig: das Transfer-Modul ist zum Verschieben von Videos
+    // zwischen Geraeten gedacht, engere Grenzen (vorher 100 MB) haben genau das
+    // verhindert. Die eigentliche Bremse ist die Gesamtpruefung im Client
+    // (src/lib/storageUsage.ts), diese Regel faengt nur Missbrauch ab.
     function sizeUnder(mb) {
       return request.resource.size < mb * 1024 * 1024;
     }
@@ -14,13 +18,13 @@ service firebase.storage {
     match /documentUploads/{userId}/{allPaths=**} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if request.auth != null && request.auth.uid == userId
-                   && (request.resource == null || sizeUnder(200));
+                   && (request.resource == null || sizeUnder(1024));
     }
 
     match /clipboardUploads/{userId}/{allPaths=**} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if request.auth != null && request.auth.uid == userId
-                   && (request.resource == null || sizeUnder(100));
+                   && (request.resource == null || sizeUnder(1024));
     }
 
     // Intertransfer-Gates: Empfaenger sind nicht angemeldet, deshalb ist Lesen offen.
@@ -29,7 +33,7 @@ service firebase.storage {
     match /gateUploads/{userId}/{allPaths=**} {
       allow read: if true;
       allow write: if request.auth != null && request.auth.uid == userId
-                   && (request.resource == null || sizeUnder(200));
+                   && (request.resource == null || sizeUnder(1024));
     }
   }
 }
