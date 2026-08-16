@@ -72,12 +72,36 @@ export function ShareBatches({
 
   const share = useCallback(
     async (index: number, ready: File[]) => {
+      // Vorab fragen, ob das Geraet genau diese Dateien annimmt. Sagt es nein, waere
+      // der Aufruf sonst kommentarlos gescheitert
+      if (!navigator.canShare?.({ files: ready })) {
+        const mb = Math.round(ready.reduce((s, f) => s + f.size, 0) / (1024 * 1024));
+        onError?.(
+          `Das Gerät nimmt diesen Stapel nicht an (${ready.length} Dateien, ${mb} MB). ` +
+            `Meist sind es zu viele oder zu grosse Dateien. Bitte "Als ZIP" nutzen.`
+        );
+        return;
+      }
+
       try {
         await shareNow(ready);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return; // Nutzer hat abgebrochen
         console.error("Teilen fehlgeschlagen:", err);
-        onError?.("Teilen fehlgeschlagen.");
+
+        // Der genaue Grund ist wichtig: NotAllowedError heisst abgelaufene Geste,
+        // DataError/TypeError heisst meist zu viele oder zu grosse Dateien. Ohne
+        // diese Unterscheidung raet man nur herum
+        const name = err instanceof Error ? err.name : "";
+        const msg = err instanceof Error ? err.message : String(err);
+        const mb = Math.round(ready.reduce((s, f) => s + f.size, 0) / (1024 * 1024));
+
+        onError?.(
+          name === "NotAllowedError"
+            ? "Das Gerät hat das Teilen abgelehnt. Bitte den Knopf noch einmal antippen."
+            : `Teilen fehlgeschlagen (${name || "unbekannt"}: ${msg}). ` +
+              `Stapel: ${ready.length} Dateien, ${mb} MB. Notfalls "Als ZIP" nutzen.`
+        );
         return;
       }
 
