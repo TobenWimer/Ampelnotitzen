@@ -2,20 +2,12 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+// Symbol und Link-Vorschaubild kommen aus src/app/icon.tsx bzw. opengraph-image.tsx,
+// Next.js erkennt beide automatisch. Deshalb hier keine icons-Angabe mehr.
+// Ohne description zeigen Messenger nur Titel und Domain statt einer Beschreibung,
+// die den Zweck der App ohnehin nicht mehr trifft.
 export const metadata: Metadata = {
   title: "OneStepBehind",
-  description: "Notizen mit Ampel-Logik – OneStepBehind",
-  icons: {
-    icon: [
-      { url: "/logo.png", type: "image/png", sizes: "32x32" },
-      { url: "/logo.png", type: "image/png", sizes: "192x192" },
-      { url: "/logo.png", type: "image/png", sizes: "512x512" },
-    ],
-    apple: [
-      { url: "/logo.png", sizes: "180x180" },
-    ],
-    shortcut: [{ url: "/logo.png" }],
-  },
 };
 
 export default function RootLayout({
@@ -25,11 +17,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="de">
-      <head>
-        {/* Fallback, falls Browser die metadata.icons ignorieren */}
-        <link rel="icon" href="/logo.png" type="image/png" />
-      </head>
-      <body className="antialiased bg-white text-gray-900">
+      {/* Dunkler Grundton, damit beim Laden kein weisses Aufblitzen entsteht.
+          Jede Seite setzt ihren eigenen Hintergrund darueber */}
+      <body className="antialiased bg-[#04070c] text-cyan-50">
         {children}
       </body>
     </html>
