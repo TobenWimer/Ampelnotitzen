@@ -28,7 +28,7 @@ import { uploadMultipleFiles, deleteDocumentFile, downloadDocumentFile } from "@
 import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
 import { usePreviewPref } from "@/components/dokumente/usePreviewPref";
-import { ImageLightbox } from "@/components/dokumente/ImageLightbox";
+import { MediaLightbox } from "@/components/hud/MediaLightbox";
 import { FolderPickerModal } from "@/components/dokumente/FolderPickerModal";
 import { moveDocument, moveFolder } from "@/components/dokumente/move";
 import { SelectionOverlay } from "@/components/dokumente/SelectionOverlay";
@@ -885,8 +885,8 @@ export default function DokumenteRootPage() {
       </div>
 
       {lightboxIndex !== null && (
-        <ImageLightbox
-          images={imageDocs}
+        <MediaLightbox
+          images={imageDocs.map((d) => ({ id: d.id, name: d.name, url: d.downloadURL! }))}
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onIndexChange={setLightboxIndex}

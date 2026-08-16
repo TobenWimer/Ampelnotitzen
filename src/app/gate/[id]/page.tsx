@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { File as FileIcon, ShieldCheck, Download, FileArchive, Share2 } from "lucide-react";
 import { subscribeGate, registerGateDownload, isGateExpired, type Gate } from "@/lib/gate";
 import { downloadFileFromUrl } from "@/lib/download";
 import { downloadAllFiles, downloadFilesAsZip, prepareShareFiles, shareNow, canShareFiles } from "@/lib/shareFiles";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 import { GateBeam } from "@/components/hud/GateBeam";
+import { MediaLightbox } from "@/components/hud/MediaLightbox";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -36,6 +38,7 @@ export default function GatePage() {
   const [progress, setProgress] = useState<number | null>(null);
   const [done, setDone] = useState(false);
   const [shareReady, setShareReady] = useState<File[] | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [, forceTick] = useState(0);
 
   // Live an das Gate gehaengt: schliesst der Ersteller es oder laeuft es ab, verschwindet
@@ -127,8 +130,12 @@ export default function GatePage() {
         <div className="flex items-center gap-3">
           <h1 className="hud-title text-lg font-bold text-cyan-100 uppercase">Intertransfer</h1>
         </div>
+        {/* Das Schild-Symbol ist ein stiller Link zur Startseite - bewusst ohne
+            Beschriftung und ohne Hinweis, Gaeste sollen hier nichts weiter suchen */}
         <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
-          <ShieldCheck size={12} />
+          <Link href="/" aria-label="OneStepBehind" className="text-cyan-400/70 hover:text-cyan-400/70">
+            <ShieldCheck size={12} />
+          </Link>
           Gastzugang
         </span>
       </header>
@@ -161,6 +168,10 @@ export default function GatePage() {
 
   const remaining = gate.expiresAt - Date.now();
   const files = gate.files;
+  // Nur Bilder, in Anzeigereihenfolge - Basis fuer die Vorschau
+  const images = files
+    .filter((f) => f.mimeType.startsWith("image/"))
+    .map((f) => ({ id: f.storagePath, name: f.fileName, url: f.downloadURL }));
 
   return shell(
     <>
@@ -229,18 +240,26 @@ export default function GatePage() {
         <div className={`relative z-10 ${files.length === 1 ? "" : "grid grid-cols-2 sm:grid-cols-3 gap-3"}`}>
           {files.map((f) => {
             const isImg = f.mimeType.startsWith("image/");
+            const imgIndex = isImg ? images.findIndex((x) => x.id === f.storagePath) : -1;
+
+            // Nur Bilder sind anklickbar und oeffnen die Vorschau. Kein Klick loest
+            // mehr einen Download aus - der laeuft ausschliesslich ueber die Knoepfe oben
+            const Tile = isImg ? "button" : "div";
             return (
-              <button
+              <Tile
                 key={f.storagePath}
-                onClick={() => runAction("Download", (p) => downloadFileFromUrl(f.downloadURL, f.fileName, p))}
-                title={`${f.fileName} herunterladen`}
-                className="flex flex-col items-center gap-2 rounded-lg border border-cyan-400/15 bg-black/20 p-2 hover:border-cyan-400/50 transition min-w-0 w-full"
+                onClick={isImg ? () => setLightboxIndex(imgIndex) : undefined}
+                title={isImg ? `${f.fileName} ansehen` : f.fileName}
+                className={`flex flex-col items-center gap-2 rounded-lg border border-cyan-400/15 bg-black/20 p-2 min-w-0 w-full transition ${
+                  isImg ? "hover:border-cyan-400/50 cursor-pointer" : ""
+                }`}
               >
                 {isImg ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={f.downloadURL}
                     alt={f.fileName}
+                    loading="lazy"
                     className={`rounded object-contain ${files.length === 1 ? "max-h-64" : "h-24 w-full object-cover"}`}
                   />
                 ) : (
@@ -252,11 +271,21 @@ export default function GatePage() {
                   {f.fileName}
                 </div>
                 <div className="text-[10px] text-cyan-300/40">{formatSize(f.sizeBytes)}</div>
-              </button>
+              </Tile>
             );
           })}
         </div>
       </div>
+
+      {lightboxIndex !== null && (
+        <MediaLightbox
+          images={images}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onIndexChange={setLightboxIndex}
+          onDownload={(img) => runAction("Download", (p) => downloadFileFromUrl(img.url, img.name, p))}
+        />
+      )}
 
       <p className="text-[10px] text-cyan-300/30 text-center mt-4 tracking-wide">
         Nach Ablauf schliesst sich das Gate und die Dateien sind nicht mehr abrufbar.

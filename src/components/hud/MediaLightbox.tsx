@@ -1,67 +1,85 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
-import type { DocItem } from "./types";
-import { downloadDocumentFile } from "./upload";
 
-// Vollbild-Bildbetrachter: oeffnet sich beim Klick auf eine Bild-Kachel
-// (nur wenn Vorschau an ist), erlaubt Durchblaettern aller Bilder im Ordner
-// per Pfeil-Buttons oder Tastatur (Links/Rechts/Escape)
-export function ImageLightbox({
+export type LightboxImage = { id: string; name: string; url: string };
+
+// Vollbild-Bildbetrachter. Blaettern per Pfeil-Buttons, Tastatur (Links/Rechts/Escape)
+// und Wischen. Wird von der Gate-Empfangsseite und dem Dokumente-Modul genutzt,
+// damit es nicht zwei fast gleiche Varianten gibt.
+export function MediaLightbox({
   images,
   index,
   onClose,
   onIndexChange,
+  onDownload,
 }: {
-  images: DocItem[];
+  images: LightboxImage[];
   index: number;
   onClose: () => void;
   onIndexChange: (i: number) => void;
+  /** Optional: zeigt einen Herunterladen-Knopf neben dem Schliessen-X */
+  onDownload?: (image: LightboxImage) => Promise<void> | void;
 }) {
   const current = images[index];
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const touchStartX = useRef<number | null>(null);
 
-  const handleDownload = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!current.downloadURL || isDownloading) return;
-    setIsDownloading(true);
-    try {
-      await downloadDocumentFile(current.downloadURL, current.name);
-    } catch (err) {
-      console.error("Download fehlgeschlagen:", err);
-      alert("Download fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.");
-    } finally {
-      setIsDownloading(false);
-    }
-  };
+  const go = (delta: number) => onIndexChange((index + delta + images.length) % images.length);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft") onIndexChange((index - 1 + images.length) % images.length);
-      if (e.key === "ArrowRight") onIndexChange((index + 1) % images.length);
+      if (e.key === "ArrowLeft") go(-1);
+      if (e.key === "ArrowRight") go(1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [index, images.length, onClose, onIndexChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, images.length, onClose]);
 
   if (!current) return null;
+
+  const handleDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onDownload || busy) return;
+    setBusy(true);
+    try {
+      await onDownload(current);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm font-mono"
       onClick={onClose}
+      onTouchStart={(e) => {
+        touchStartX.current = e.touches[0]?.clientX ?? null;
+      }}
+      onTouchEnd={(e) => {
+        const start = touchStartX.current;
+        touchStartX.current = null;
+        if (start === null || images.length < 2) return;
+        const delta = (e.changedTouches[0]?.clientX ?? start) - start;
+        // Schwelle, damit ein Tippen nicht versehentlich weiterblaettert
+        if (Math.abs(delta) > 50) go(delta < 0 ? 1 : -1);
+      }}
     >
       <div className="absolute top-5 right-5 z-10 flex items-center gap-2">
-        <button
-          onClick={handleDownload}
-          disabled={isDownloading}
-          className="h-10 w-10 flex items-center justify-center rounded-full border border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10 hover:border-emerald-300 transition disabled:opacity-40"
-          title="Bild herunterladen"
-        >
-          {isDownloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-        </button>
+        {onDownload && (
+          <button
+            onClick={handleDownload}
+            disabled={busy}
+            className="h-10 w-10 flex items-center justify-center rounded-full border border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10 hover:border-emerald-300 transition disabled:opacity-40"
+            title="Bild herunterladen"
+            aria-label="Bild herunterladen"
+          >
+            {busy ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+          </button>
+        )}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -69,6 +87,7 @@ export function ImageLightbox({
           }}
           className="h-10 w-10 flex items-center justify-center rounded-full border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 hover:border-cyan-300 transition"
           title="Schließen"
+          aria-label="Schließen"
         >
           <X size={18} />
         </button>
@@ -79,20 +98,22 @@ export function ImageLightbox({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onIndexChange((index - 1 + images.length) % images.length);
+              go(-1);
             }}
             className="absolute left-3 md:left-6 z-10 h-11 w-11 flex items-center justify-center rounded-full border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 hover:border-cyan-300 transition"
             title="Vorheriges Bild"
+            aria-label="Vorheriges Bild"
           >
             <ChevronLeft size={22} />
           </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onIndexChange((index + 1) % images.length);
+              go(1);
             }}
             className="absolute right-3 md:right-6 z-10 h-11 w-11 flex items-center justify-center rounded-full border border-cyan-400/40 text-cyan-300 hover:bg-cyan-400/10 hover:border-cyan-300 transition"
             title="Nächstes Bild"
+            aria-label="Nächstes Bild"
           >
             <ChevronRight size={22} />
           </button>
@@ -105,9 +126,10 @@ export function ImageLightbox({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={current.downloadURL}
+          src={current.url}
           alt={current.name}
-          className="block max-w-[92vw] max-h-[82vh] object-contain"
+          draggable={false}
+          className="block max-w-[92vw] max-h-[82vh] object-contain select-none"
         />
       </div>
 
