@@ -16,11 +16,14 @@ export function TransferLine({
   label,
   remainingFraction,
   activity,
+  error,
 }: {
   active: boolean;
   label: string;
   remainingFraction: number;
   activity: TransferActivity;
+  /** Gesetzt, wenn ein Upload abgelehnt wurde. Faerbt die Leitung rot und stoppt die Pakete */
+  error?: string | null;
 }) {
   const [reverse, setReverse] = useState(false);
   const [booted, setBooted] = useState(false);
@@ -30,14 +33,24 @@ export function TransferLine({
     return () => clearTimeout(t);
   }, []);
 
-  // Upload violett, Download gruen, sonst der normale Belegt(cyan)/Leer(grau)-Zustand
-  const color =
-    activity?.type === "upload" ? "#a78bfa" : activity?.type === "download" ? "#4ade80" : active ? "#22d3ee" : "#475569";
+  // Fehlschlag rot, sonst Upload violett, Download gruen, Belegt cyan, Leer grau
+  const color = error
+    ? "#f87171"
+    : activity?.type === "upload"
+    ? "#a78bfa"
+    : activity?.type === "download"
+    ? "#4ade80"
+    : active
+    ? "#22d3ee"
+    : "#475569";
 
   // Waehrend eines Transfers laufen die Pakete immer in Transferrichtung, unabhaengig
   // von der per Klick gewaehlten Deko-Richtung (Upload = raus, Download = rein)
   const flowReverse = activity ? activity.type === "download" : reverse;
   const busy = !!activity;
+  // Im Fehlerfall stehen die Pakete still: eine laufende Leitung wuerde suggerieren,
+  // dass doch etwas uebertragen wird
+  const halted = !!error;
 
   // Drei Intensitaetsstufen: Standby laeuft bewusst auch, nur traege und blass.
   // Die Anzahl teilt die Laufzeit gleichmaessig auf (siehe negative Delays unten),
@@ -74,7 +87,8 @@ export function TransferLine({
     // Button, und Button-in-Button waere ungueltiges HTML
     <div
       onClick={() => setReverse((v) => !v)}
-      className="hud-panel rounded-2xl p-4 w-full block text-left cursor-pointer"
+      className={`hud-panel rounded-2xl p-4 w-full block text-left cursor-pointer ${error ? "hud-shake" : ""}`}
+      style={error ? { borderColor: "rgba(248,113,113,0.65)", boxShadow: "0 0 22px rgba(248,113,113,0.3)" } : undefined}
       title="Übertragungsrichtung umkehren"
     >
       <div className="relative z-10">
@@ -140,7 +154,7 @@ export function TransferLine({
                 Dank der negativen Verzoegerungen sind sie sofort wieder gleichmaessig
                 auf der Strecke verteilt, der Neuaufbau ist dadurch nicht sichtbar. */}
             <span key={`${flowReverse ? "rev" : "fwd"}-${packets.durationSec}-${packets.count}`}>
-              {Array.from({ length: packets.count }, (_, i) => (
+              {(halted ? [] : Array.from({ length: packets.count }, (_, i) => i)).map((i) => (
                 <span
                   key={i}
                   className="absolute top-1/2 -translate-y-1/2 h-2 w-12 pointer-events-none"
@@ -201,17 +215,28 @@ export function TransferLine({
           )}
         </div>
 
-        <div className="flex items-center justify-between mt-2 text-[9px] tracking-widest uppercase">
+        <div className="flex items-center justify-between mt-2 gap-3 text-[9px] tracking-widest uppercase">
           <span
+            className={error ? "hud-alarm" : ""}
             style={{
-              color: busy ? color : active ? "#a5f3fc" : "rgba(165,243,252,0.3)",
-              textShadow: active || busy ? `0 0 8px ${color}88` : "none",
+              color: error ? color : busy ? color : active ? "#a5f3fc" : "rgba(165,243,252,0.3)",
+              textShadow: error || active || busy ? `0 0 8px ${color}88` : "none",
             }}
           >
-            {busy ? `${activity!.type === "upload" ? "Upload" : "Download"} · ${Math.round(activity!.pct)}%` : label}
+            {error
+              ? "Upload abgelehnt"
+              : busy
+              ? `${activity!.type === "upload" ? "Upload" : "Download"} · ${Math.round(activity!.pct)}%`
+              : label}
           </span>
           <span className="text-cyan-300/25 normal-case tracking-normal">Klick: Richtung</span>
         </div>
+
+        {error && (
+          <p className="mt-2 text-[11px] leading-relaxed normal-case tracking-normal" style={{ color: "#fca5a5" }}>
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );

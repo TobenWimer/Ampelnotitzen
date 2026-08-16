@@ -18,6 +18,7 @@ import {
 } from "@/lib/clipboard";
 import { downloadFileFromUrl } from "@/lib/download";
 import { downloadAllFiles, downloadFilesAsZip, shareFiles, canShareFiles } from "@/lib/shareFiles";
+import { checkQuota } from "@/lib/storageUsage";
 import { TransferLine } from "@/components/hud/TransferLine";
 import { IntertransferPanel } from "@/components/hud/IntertransferPanel";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
@@ -51,6 +52,7 @@ export default function ZwischenablagePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
   const [, forceTick] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -134,13 +136,23 @@ export default function ZwischenablagePage() {
 
   const uploadFiles = useCallback(async (files: File[]) => {
     if (!user || files.length === 0) return;
+    setQuotaError(null);
+
+    // Erst pruefen, dann hochladen: ein mittendrin abgebrochener Upload wuerde sonst
+    // Bytes im Storage hinterlassen, zu denen es keine Metadaten gibt
+    const quota = await checkQuota(user.uid, files);
+    if (!quota.ok) {
+      setQuotaError(quota.message);
+      return;
+    }
+
     setUploadPct(0);
     try {
       await uploadClipboardFiles({ files, uid: user.uid, onProgress: setUploadPct });
       flash(files.length === 1 ? "Datei eingefügt." : `${files.length} Dateien eingefügt.`);
     } catch (err) {
       console.error("Clipboard-Upload fehlgeschlagen:", err);
-      alert("Datei-Upload fehlgeschlagen.");
+      setQuotaError("Datei-Upload fehlgeschlagen.");
     } finally {
       setUploadPct(null);
     }
@@ -331,6 +343,7 @@ export default function ZwischenablagePage() {
                 ? { type: "download", pct: downloadPct }
                 : null
             }
+            error={quotaError}
           />
         </div>
 

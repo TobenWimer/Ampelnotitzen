@@ -5,7 +5,8 @@ export type GateStage =
   | { kind: "uploading"; pct: number }
   | { kind: "linking" }
   | { kind: "open"; gates: number; remainingLabel: string }
-  | { kind: "receiving"; count: number };
+  | { kind: "receiving"; count: number }
+  | { kind: "error"; message: string };
 
 const TICKS = Array.from({ length: 16 }, (_, i) => i * (360 / 16));
 
@@ -115,26 +116,42 @@ export function GateReactors({ stage }: { stage: GateStage }) {
   const GATE = "#fbbf24"; // bernstein: offenes Gate
   const RECEIVE = "#4ade80"; // gruen wie der Download
 
+  const FAIL = "#f87171";
+
   const uploading = stage.kind === "uploading";
   const linking = stage.kind === "linking";
   const receiving = stage.kind === "receiving";
   const open = stage.kind === "open";
+  const failed = stage.kind === "error";
 
-  const gateColor = receiving ? RECEIVE : open || linking ? GATE : "#475569";
+  const gateColor = failed ? FAIL : receiving ? RECEIVE : open || linking ? GATE : "#475569";
   const sourceActive = uploading || linking;
   const gateActive = open || receiving || linking;
 
-  const lineColor = receiving ? RECEIVE : uploading || linking ? SOURCE : open ? GATE : "#475569";
+  const lineColor = failed
+    ? FAIL
+    : receiving
+    ? RECEIVE
+    : uploading || linking
+    ? SOURCE
+    : open
+    ? GATE
+    : "#475569";
   const flowReverse = receiving; // Abholen laeuft vom Gate zurueck zum Empfaenger
   const busyLine = uploading || linking || receiving;
-  const packets = busyLine
+  // Im Fehlerfall stehen die Pakete still, sonst wuerde es aussehen als liefe der Upload
+  const packets = failed
+    ? { count: 0, durationSec: 1, opacity: 0 }
+    : busyLine
     ? { count: 4, durationSec: 1.6, opacity: 0.85 }
     : open
     ? { count: 2, durationSec: 3.2, opacity: 0.55 }
     : { count: 2, durationSec: 7, opacity: 0.3 };
 
   const statusText =
-    stage.kind === "uploading"
+    stage.kind === "error"
+      ? "Upload abgelehnt"
+      : stage.kind === "uploading"
       ? `Dateien werden hochgeladen · ${Math.round(stage.pct)}%`
       : stage.kind === "linking"
       ? "Gate wird erzeugt, Link wird generiert…"
@@ -145,7 +162,13 @@ export function GateReactors({ stage }: { stage: GateStage }) {
       : "Kein Gate offen";
 
   return (
-    <div className="rounded-xl border border-cyan-400/15 bg-black/25 p-3 mb-4">
+    <div
+      className={`rounded-xl border bg-black/25 p-3 mb-4 ${failed ? "hud-shake" : ""}`}
+      style={{
+        borderColor: failed ? "rgba(248,113,113,0.6)" : "rgba(34,211,238,0.15)",
+        boxShadow: failed ? "0 0 20px rgba(248,113,113,0.25)" : "none",
+      }}
+    >
       <div className="flex items-center gap-3">
         <Core
           color={SOURCE}
@@ -220,9 +243,18 @@ export function GateReactors({ stage }: { stage: GateStage }) {
         />
       </div>
 
-      <div className="text-[10px] tracking-wide text-center mt-2" style={{ color: busyLine || open ? lineColor : "rgba(165,243,252,0.3)" }}>
+      <div
+        className={`text-[10px] tracking-wide text-center mt-2 ${failed ? "hud-alarm" : ""}`}
+        style={{ color: failed || busyLine || open ? lineColor : "rgba(165,243,252,0.3)" }}
+      >
         {statusText}
       </div>
+
+      {stage.kind === "error" && (
+        <p className="text-[11px] leading-relaxed text-center mt-1.5" style={{ color: "#fca5a5" }}>
+          {stage.message}
+        </p>
+      )}
     </div>
   );
 }

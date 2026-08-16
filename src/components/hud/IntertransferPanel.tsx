@@ -15,6 +15,7 @@ import {
   type Gate,
 } from "@/lib/gate";
 import { GateReactors, type GateStage } from "@/components/hud/GateReactors";
+import { checkQuota } from "@/lib/storageUsage";
 
 function formatRemaining(ms: number): string {
   if (ms <= 0) return "abgelaufen";
@@ -38,6 +39,7 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
   const [, forceTick] = useState(0);
 
   // Merkt sich den zuletzt gesehenen Abhol-Zaehler, um eine neue Abholung als
@@ -91,6 +93,16 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
 
   const handleCreate = useCallback(async () => {
     if (!uid || pendingFiles.length === 0) return;
+    setQuotaError(null);
+
+    // Erst pruefen, dann hochladen - ein abgebrochener Upload wuerde sonst Bytes
+    // im Storage hinterlassen, zu denen es kein Gate gibt
+    const quota = await checkQuota(uid, pendingFiles);
+    if (!quota.ok) {
+      setQuotaError(quota.message);
+      return;
+    }
+
     setUploadPct(0);
     try {
       await createGate({ files: pendingFiles, uid, durationMs, note: note.trim(), onProgress: setUploadPct });
@@ -103,7 +115,7 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
       setCreating(false);
     } catch (err) {
       console.error("Gate anlegen fehlgeschlagen:", err);
-      alert("Gate konnte nicht angelegt werden.");
+      setQuotaError("Gate konnte nicht angelegt werden.");
     } finally {
       setUploadPct(null);
     }
@@ -130,7 +142,9 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
   const activeGates = gates.filter((g) => !isGateExpired(g));
 
   const stage: GateStage =
-    uploadPct !== null
+    quotaError
+      ? { kind: "error", message: quotaError }
+      : uploadPct !== null
       ? { kind: "uploading", pct: uploadPct }
       : linking
       ? { kind: "linking" }
@@ -177,6 +191,7 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
               className="hidden"
               onChange={(e) => {
                 setPendingFiles(Array.from(e.target.files ?? []));
+                setQuotaError(null); // neue Auswahl, alte Ablehnung nicht stehen lassen
                 e.target.value = "";
               }}
             />

@@ -207,6 +207,21 @@ export default function HudGlobalStyles() {
         0%, 100% { opacity: 0.25; }
         50% { opacity: 0.7; }
       }
+      /* Fehlschlag: schnelles rotes Alarmblinken, laeuft nur kurz und stoppt dann */
+      @keyframes hud-alarm {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+      }
+      /* kurzes Ruckeln, damit ein abgelehnter Vorgang auch ohne Farbe auffaellt */
+      @keyframes hud-shake {
+        0%, 100% { transform: translateX(0); }
+        20% { transform: translateX(-5px); }
+        40% { transform: translateX(5px); }
+        60% { transform: translateX(-3px); }
+        80% { transform: translateX(3px); }
+      }
+      .hud-alarm { animation: hud-alarm 0.55s ease-in-out 5; }
+      .hud-shake { animation: hud-shake 0.45s ease-in-out 1; }
       /* traeger Standby-Schimmer, laeuft langsam von links nach rechts */
       @keyframes hud-idle-drift {
         0% { left: -35%; opacity: 0; }
