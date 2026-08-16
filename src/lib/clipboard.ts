@@ -59,16 +59,25 @@ export const isFileEntry = (data: ClipboardData | null) =>
 export async function uploadClipboardFiles({
   files,
   uid,
+  append = false,
   onProgress,
 }: {
   files: File[];
   uid: string;
+  /** true = zu den bestehenden Dateien dazulegen, false = alles ersetzen */
+  append?: boolean;
   onProgress?: (pct: number) => void;
 }) {
   if (files.length === 0) return;
 
   const prevSnap = await getDoc(doc(db, "clipboard", uid));
-  const prevPaths = prevSnap.exists() ? clipboardFiles(prevSnap.data() as ClipboardData).map((f) => f.storagePath) : [];
+  const prevData = prevSnap.exists() ? (prevSnap.data() as ClipboardData) : null;
+  const prevFiles = clipboardFiles(prevData);
+
+  // Beim Nachlegen bleiben die alten Dateien stehen und werden nicht aus Storage
+  // entfernt. Nur beim Ersetzen wird aufgeraeumt
+  const keepFiles = append ? prevFiles : [];
+  const prevPaths = append ? [] : prevFiles.map((f) => f.storagePath);
 
   const uploaded: ClipboardFile[] = [];
   const total = files.length;
@@ -102,7 +111,7 @@ export async function uploadClipboardFiles({
 
   await setDoc(doc(db, "clipboard", uid), {
     kind: "files",
-    files: uploaded,
+    files: [...keepFiles, ...uploaded],
     updatedAt: Date.now(),
   });
 

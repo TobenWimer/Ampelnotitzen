@@ -7,6 +7,7 @@ import { subscribeGate, registerGateDownload, isGateExpired, type Gate } from "@
 import { downloadFileFromUrl } from "@/lib/download";
 import { downloadAllFiles, downloadFilesAsZip, shareFiles, canShareFiles } from "@/lib/shareFiles";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { GateBeam } from "@/components/hud/GateBeam";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -33,6 +34,7 @@ export default function GatePage() {
   const [gate, setGate] = useState<Gate | null>(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<number | null>(null);
+  const [done, setDone] = useState(false);
   const [, forceTick] = useState(0);
 
   // Live an das Gate gehaengt: schliesst der Ersteller es oder laeuft es ab, verschwindet
@@ -60,6 +62,10 @@ export default function GatePage() {
       try {
         await fn(setProgress);
         registerGateDownload(gateId); // Ersteller sieht, dass abgeholt wurde
+        // kurz den Abschluss zeigen, sonst verschwindet die Sequenz im selben Moment,
+        // in dem sie fertig wird
+        setDone(true);
+        setTimeout(() => setDone(false), 1600);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return; // Teilen abgebrochen
         if (err instanceof Error && err.message === "SHARE_UNSUPPORTED") {
@@ -177,10 +183,9 @@ export default function GatePage() {
           </button>
         )}
 
-        {progress !== null && (
-          <span className="text-[11px] tracking-widest uppercase text-cyan-300/70">Läuft… {progress}%</span>
-        )}
       </div>
+
+      {(progress !== null || done) && <GateBeam pct={progress ?? 100} done={done} />}
 
       <div className="hud-panel rounded-2xl p-5">
         <div className={`relative z-10 ${files.length === 1 ? "" : "grid grid-cols-2 sm:grid-cols-3 gap-3"}`}>

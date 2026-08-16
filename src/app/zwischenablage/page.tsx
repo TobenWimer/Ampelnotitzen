@@ -56,6 +56,7 @@ export default function ZwischenablagePage() {
   const [, forceTick] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const appendInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -134,7 +135,7 @@ export default function ZwischenablagePage() {
     await setDoc(doc(db, "clipboard", user.uid), { kind: "text", text, updatedAt: Date.now() });
   }, [user]);
 
-  const uploadFiles = useCallback(async (files: File[]) => {
+  const uploadFiles = useCallback(async (files: File[], append = false) => {
     if (!user || files.length === 0) return;
     setQuotaError(null);
 
@@ -148,8 +149,15 @@ export default function ZwischenablagePage() {
 
     setUploadPct(0);
     try {
-      await uploadClipboardFiles({ files, uid: user.uid, onProgress: setUploadPct });
-      flash(files.length === 1 ? "Datei eingefügt." : `${files.length} Dateien eingefügt.`);
+      await uploadClipboardFiles({ files, uid: user.uid, append, onProgress: setUploadPct });
+      const n = files.length;
+      flash(
+        append
+          ? `${n} ${n === 1 ? "Datei" : "Dateien"} dazugelegt.`
+          : n === 1
+          ? "Datei eingefügt."
+          : `${n} Dateien eingefügt.`
+      );
     } catch (err) {
       console.error("Clipboard-Upload fehlgeschlagen:", err);
       // Firebase-Fehlercode mitgeben statt nur "fehlgeschlagen" - sonst raetselt man,
@@ -169,6 +177,12 @@ export default function ZwischenablagePage() {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     await uploadFiles(files);
+  }, [uploadFiles]);
+
+  const handleFileAppend = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await uploadFiles(files, true);
   }, [uploadFiles]);
 
   const handleDragEnter = (e: React.DragEvent) => {
@@ -374,6 +388,21 @@ export default function ZwischenablagePage() {
           >
             {uploadPct !== null ? `Lädt hoch… ${uploadPct}%` : "Hochladen"}
           </button>
+
+          {/* Nachlegen: nur sinnvoll, wenn schon Dateien drin sind. Ersetzt nichts */}
+          {hasFiles && (
+            <>
+              <input ref={appendInputRef} type="file" multiple onChange={handleFileAppend} className="hidden" />
+              <button
+                onClick={() => appendInputRef.current?.click()}
+                className="zwa-btn zwa-btn-outline"
+                disabled={!user || uploadPct !== null}
+                title="Weitere Dateien dazulegen, bestehende bleiben erhalten"
+              >
+                Dazulegen
+              </button>
+            </>
+          )}
 
           {hasFiles ? (
             <div className="relative" ref={menuRef}>

@@ -19,12 +19,15 @@ function Core({
   caption,
   active,
   pct,
+  spinReverse = false,
 }: {
   color: string;
   label: string;
   caption: string;
   active: boolean;
   pct?: number;
+  /** Quelle und Gate drehen gegenlaeufig, das betont die Richtung der Uebertragung */
+  spinReverse?: boolean;
 }) {
   const radius = 26;
   const circumference = 2 * Math.PI * radius;
@@ -36,10 +39,10 @@ function Core({
         className="relative h-16 w-16 transition-[filter] duration-500"
         style={{ filter: active ? `drop-shadow(0 0 12px ${color}88)` : `drop-shadow(0 0 4px ${color}33)` }}
       >
-        {/* Aussenring mit Tick-Marks */}
+        {/* Aussenring mit Tick-Marks, Drehrichtung je nach Seite */}
         <svg
           viewBox="0 0 72 72"
-          className={`absolute inset-0 h-full w-full ${active ? "hud-ring-spin-slow-rev" : "hud-ring-spin-slow"}`}
+          className={`absolute inset-0 h-full w-full ${spinReverse ? "hud-ring-spin-slow-rev" : "hud-ring-spin-slow"}`}
           style={{ color, opacity: active ? 1 : 0.45 }}
         >
           <circle cx="36" cy="36" r="34" fill="none" stroke="currentColor" strokeWidth="0.8" opacity="0.3" />
@@ -176,6 +179,7 @@ export function GateReactors({ stage }: { stage: GateStage }) {
           caption={uploading ? "sendet" : "bereit"}
           active={sourceActive}
           pct={uploading ? stage.pct : undefined}
+        /* Quelle im Uhrzeigersinn, Gate dagegen */
         />
 
         {/* Leitung zwischen den Reaktoren */}
@@ -240,6 +244,7 @@ export function GateReactors({ stage }: { stage: GateStage }) {
           label="Gate"
           caption={receiving ? "Abholung" : open ? "offen" : linking ? "öffnet" : "zu"}
           active={gateActive}
+          spinReverse
         />
       </div>
 

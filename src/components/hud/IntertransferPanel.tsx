@@ -6,6 +6,7 @@ import { Link2, Check, Trash2, Eye, Plus } from "lucide-react";
 import {
   createGate,
   closeGate,
+  addFilesToGate,
   gatesCollection,
   gateFromData,
   gateUrl,
@@ -48,6 +49,8 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
   const [receiving, setReceiving] = useState<{ count: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const addInputRef = useRef<HTMLInputElement | null>(null);
+  const addTargetRef = useRef<Gate | null>(null);
 
   useEffect(() => {
     if (!uid) {
@@ -137,6 +140,42 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
     }
   }, []);
 
+  // Nachlegen in ein offenes Gate: Laufzeit und Link bleiben, Empfaenger sehen die
+  // neuen Dateien sofort. Ein verstecktes Input pro Gate waere Overkill, deshalb ein
+  // gemeinsames, das sich merkt, fuer welches Gate es gerade offen ist
+  const handleAddFiles = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
+      const gate = addTargetRef.current;
+      addTargetRef.current = null;
+      if (!uid || !gate || files.length === 0) return;
+
+      setQuotaError(null);
+      const quota = await checkQuota(uid, files);
+      if (!quota.ok) {
+        setQuotaError(quota.message);
+        return;
+      }
+
+      setUploadPct(0);
+      try {
+        await addFilesToGate({ gate, files, onProgress: setUploadPct });
+      } catch (err) {
+        console.error("Nachlegen fehlgeschlagen:", err);
+        const code = (err as { code?: string })?.code;
+        setQuotaError(
+          code === "storage/unauthorized"
+            ? "Upload vom Server abgelehnt. Datei zu gross oder Storage-Regeln nicht aktuell."
+            : `Dateien konnten nicht dazugelegt werden${code ? ` (${code})` : ""}.`
+        );
+      } finally {
+        setUploadPct(null);
+      }
+    },
+    [uid]
+  );
+
   const handleClose = useCallback(async (gate: Gate) => {
     if (!confirm("Gate jetzt schliessen? Der Link wird sofort ungültig und die Dateien werden gelöscht.")) return;
     // Dokument zuerst weg: die Empfangsseite haengt per onSnapshot daran und macht
@@ -185,6 +224,9 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
 
         {/* Doppelreaktor: zeigt Upload, Link-Erzeugung, offenes Gate und Abholungen */}
         <GateReactors stage={stage} />
+
+        {/* gemeinsames Input fuers Nachlegen, das Ziel-Gate steht in addTargetRef */}
+        <input ref={addInputRef} type="file" multiple onChange={handleAddFiles} className="hidden" />
 
         {/* Neues Gate anlegen */}
         {creating && (
@@ -288,6 +330,17 @@ export function IntertransferPanel({ uid }: { uid: string | null }) {
                     >
                       {copiedId === g.id ? <Check size={13} /> : <Link2 size={13} />}
                       {copiedId === g.id ? "Kopiert" : "Link"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        addTargetRef.current = g;
+                        addInputRef.current?.click();
+                      }}
+                      className="zwa-btn zwa-btn-outline inline-flex items-center gap-1.5"
+                      disabled={uploadPct !== null}
+                      title="Weitere Dateien in dieses Gate legen"
+                    >
+                      <Plus size={13} />
                     </button>
                     <a
                       href={gatePath(g.id)}

@@ -162,6 +162,54 @@ export async function registerGateDownload(gateId: string) {
   }
 }
 
+// Legt Dateien in ein bereits offenes Gate nach. Laufzeit und Link bleiben unveraendert,
+// Empfaenger sehen die neuen Dateien sofort (die Gastseite haengt per onSnapshot dran)
+export async function addFilesToGate({
+  gate,
+  files,
+  onProgress,
+}: {
+  gate: Gate;
+  files: File[];
+  onProgress?: (pct: number) => void;
+}) {
+  if (files.length === 0) return;
+
+  const uploaded: GateFile[] = [];
+  const total = files.length;
+
+  for (let i = 0; i < total; i++) {
+    const file = files[i];
+    // Zeitstempel im Namen, damit ein zweiter Upload derselben Datei den ersten
+    // nicht ueberschreibt
+    const storagePath = `gateUploads/${gate.ownerUid}/${gate.id}/${Date.now()}-${i}-${file.name}`;
+    const storageRef = ref(storage, storagePath);
+
+    await new Promise<void>((resolve, reject) => {
+      const task = uploadBytesResumable(storageRef, file);
+      task.on(
+        "state_changed",
+        (snap) => {
+          const filePct = snap.bytesTransferred / snap.totalBytes;
+          onProgress?.(Math.round(((i + filePct) / total) * 100));
+        },
+        reject,
+        () => resolve()
+      );
+    });
+
+    uploaded.push({
+      fileName: file.name,
+      storagePath,
+      downloadURL: await getDownloadURL(storageRef),
+      mimeType: file.type || "application/octet-stream",
+      sizeBytes: file.size,
+    });
+  }
+
+  await updateDoc(doc(db, "gates", gate.id), { files: [...gate.files, ...uploaded] });
+}
+
 // Schliesst ein Gate endgueltig: erst die Dateien aus Storage, dann das Dokument.
 // Reihenfolge ist wichtig - die Storage-Pfade stehen nur im Dokument
 export async function closeGate(gate: Gate) {
