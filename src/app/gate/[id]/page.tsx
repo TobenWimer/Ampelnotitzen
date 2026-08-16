@@ -11,6 +11,8 @@ import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 import { GateBeam } from "@/components/hud/GateBeam";
 import { MediaLightbox } from "@/components/hud/MediaLightbox";
 import { ShareBatches } from "@/components/hud/ShareBatches";
+import { ChannelLight } from "@/components/hud/ChannelLight";
+import { beginTransfer } from "@/lib/transferChannel";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -63,6 +65,7 @@ export default function GatePage() {
   const runAction = useCallback(
     async (label: string, fn: (onProgress: (p: number) => void) => Promise<void>) => {
       setProgress(0);
+      const endTransfer = beginTransfer("download", label);
       try {
         await fn(setProgress);
         registerGateDownload(gateId); // Ersteller sieht, dass abgeholt wurde
@@ -79,6 +82,7 @@ export default function GatePage() {
         console.error(`${label} fehlgeschlagen:`, err);
         alert(`${label} fehlgeschlagen.`);
       } finally {
+        endTransfer();
         setProgress(null);
       }
     },
@@ -102,6 +106,7 @@ export default function GatePage() {
           </Link>
           Gastzugang
         </span>
+        <ChannelLight className="hidden sm:inline-flex" />
       </header>
 
       <div className="relative z-10 flex-1 max-w-2xl w-full mx-auto px-6 py-10">{children}</div>

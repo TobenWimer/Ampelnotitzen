@@ -27,6 +27,8 @@ import DokumenteHudStyles from "@/components/dokumente/HudStyles";
 import { uploadMultipleFiles, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
 import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
+import { ChannelLight } from "@/components/hud/ChannelLight";
+import { beginTransfer } from "@/lib/transferChannel";
 import { usePreviewPref } from "@/components/dokumente/usePreviewPref";
 import { MediaLightbox } from "@/components/hud/MediaLightbox";
 import { FolderPickerModal } from "@/components/dokumente/FolderPickerModal";
@@ -275,12 +277,14 @@ export default function AnyDepthFolderPage() {
   const uploadFiles = async (files: File[]) => {
     if (files.length === 0 || !uid) return;
     setUploadPct(0);
+    const endTransfer = beginTransfer("upload", `Dokumente · ${files.length} Dateien`);
     try {
       await uploadMultipleFiles({ files, uid, parentPathSlug: currentPathSlug, onProgress: setUploadPct });
     } catch (err) {
       console.error("Upload fehlgeschlagen:", err);
       alert("Datei-Upload fehlgeschlagen.");
     } finally {
+      endTransfer();
       setUploadPct(null);
     }
   };
@@ -392,6 +396,7 @@ export default function AnyDepthFolderPage() {
   const handleDownloadFolder = async (f: Folder) => {
     if (!uid) return;
     setDownloadPct(0);
+    const endTransfer = beginTransfer("download", `Ordner ${f.name}`);
     try {
       const fullPathSlug = currentPathSlug ? `${currentPathSlug}/${f.slug}` : f.slug;
       await downloadFolderAsZip({ uid, rootName: f.name, fullPathSlug, onProgress: setDownloadPct });
@@ -403,6 +408,7 @@ export default function AnyDepthFolderPage() {
         alert("Ordner-Download fehlgeschlagen.");
       }
     } finally {
+      endTransfer();
       setDownloadPct(null);
     }
   };
@@ -425,12 +431,14 @@ export default function AnyDepthFolderPage() {
   const handleDownloadDoc = async (d: DocItem) => {
     if (!d.downloadURL) return;
     setDownloadPct(0);
+    const endTransfer = beginTransfer("download", d.name);
     try {
       await downloadDocumentFile(d.downloadURL, d.name, setDownloadPct);
     } catch (err) {
       console.error("Download fehlgeschlagen:", err);
       alert("Download fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.");
     } finally {
+      endTransfer();
       setDownloadPct(null);
     }
   };
@@ -623,10 +631,7 @@ export default function AnyDepthFolderPage() {
           <span className="text-cyan-400/20">|</span>
           <h1 className="dhud-title text-lg font-bold text-cyan-100 uppercase">Dokumente</h1>
         </div>
-        <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
-          <span className="dhud-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
-          Sync aktiv
-        </span>
+        <ChannelLight />
       </header>
 
       <div className="relative z-10 p-6 md:p-8 max-w-6xl mx-auto">

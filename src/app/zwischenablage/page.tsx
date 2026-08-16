@@ -22,6 +22,8 @@ import { downloadAllFiles, downloadFilesAsZip } from "@/lib/shareFiles";
 import { checkQuota } from "@/lib/storageUsage";
 import { TransferLine } from "@/components/hud/TransferLine";
 import { ShareBatches } from "@/components/hud/ShareBatches";
+import { ChannelLight } from "@/components/hud/ChannelLight";
+import { beginTransfer } from "@/lib/transferChannel";
 import { IntertransferPanel } from "@/components/hud/IntertransferPanel";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 
@@ -152,6 +154,7 @@ export default function ZwischenablagePage() {
     }
 
     setUploadPct(0);
+    const endTransfer = beginTransfer("upload", `Transfer · ${files.length} Dateien`);
     try {
       await uploadClipboardFiles({ files, uid: user.uid, append, onProgress: setUploadPct });
       const n = files.length;
@@ -173,6 +176,7 @@ export default function ZwischenablagePage() {
           : `Datei-Upload fehlgeschlagen${code ? ` (${code})` : ""}.`
       );
     } finally {
+      endTransfer();
       setUploadPct(null);
     }
   }, [user, flash]);
@@ -272,6 +276,7 @@ export default function ZwischenablagePage() {
     async (label: string, fn: (onProgress: (p: number) => void) => Promise<void>) => {
       setDownloadPct(0);
       setMenuOpen(false);
+      const endTransfer = beginTransfer("download", `Transfer · ${label}`);
       try {
         await fn(setDownloadPct);
       } catch (err) {
@@ -280,6 +285,7 @@ export default function ZwischenablagePage() {
         console.error(`${label} fehlgeschlagen:`, err);
         alert(`${label} fehlgeschlagen. Möglicherweise fehlt die CORS-Freigabe im Storage-Bucket.`);
       } finally {
+        endTransfer();
         setDownloadPct(null);
       }
     },
@@ -342,10 +348,7 @@ export default function ZwischenablagePage() {
           <span className="text-cyan-400/20">|</span>
           <h1 className="zwa-title text-lg font-bold text-cyan-100 uppercase">Transfer</h1>
         </div>
-        <span className="flex items-center gap-1.5 text-[10px] tracking-[0.2em] text-cyan-400/70 uppercase">
-          <span className="zwa-dot h-1.5 w-1.5 rounded-full bg-cyan-400" />
-          Sync aktiv
-        </span>
+        <ChannelLight />
       </header>
 
       <div className="relative z-10 flex-1 max-w-2xl w-full mx-auto px-6 py-10">
