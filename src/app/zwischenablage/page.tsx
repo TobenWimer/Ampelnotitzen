@@ -17,7 +17,7 @@ import {
   ClipboardData,
 } from "@/lib/clipboard";
 import { downloadFileFromUrl } from "@/lib/download";
-import { downloadAllFiles, downloadFilesAsZip, shareFiles, canShareFiles } from "@/lib/shareFiles";
+import { downloadAllFiles, downloadFilesAsZip, prepareShareFiles, shareNow, canShareFiles } from "@/lib/shareFiles";
 import { checkQuota } from "@/lib/storageUsage";
 import { TransferLine } from "@/components/hud/TransferLine";
 import { IntertransferPanel } from "@/components/hud/IntertransferPanel";
@@ -53,6 +53,9 @@ export default function ZwischenablagePage() {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [downloadPct, setDownloadPct] = useState<number | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
+  // Vorbereitete Dateien fuers Teilen. navigator.share() braucht eine frische
+  // Nutzergeste, die waehrend des Herunterladens abgelaufen waere
+  const [shareReady, setShareReady] = useState<File[] | null>(null);
   const [, forceTick] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -291,6 +294,19 @@ export default function ZwischenablagePage() {
     [runFileAction]
   );
 
+  const handleShareNow = useCallback(async () => {
+    if (!shareReady) return;
+    setMenuOpen(false);
+    try {
+      await shareNow(shareReady);
+      setShareReady(null);
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return; // Nutzer hat abgebrochen
+      console.error("Teilen fehlgeschlagen:", err);
+      alert("Teilen fehlgeschlagen.");
+    }
+  }, [shareReady]);
+
   const handleDelete = useCallback(async () => {
     if (!user || !visible) return;
     if (!confirm("Ablage wirklich löschen?")) return;
@@ -438,8 +454,18 @@ export default function ZwischenablagePage() {
                   </button>
 
                   {canShareFiles() && (
-                    <button className="hud-menu-item" onClick={() => runFileAction("Teilen", (p) => shareFiles(files, p))}>
-                      Teilen
+                    <button
+                      className="hud-menu-item"
+                      onClick={
+                        shareReady
+                          ? handleShareNow
+                          : () =>
+                              runFileAction("Teilen", async (p) => {
+                                setShareReady(await prepareShareFiles(files, p));
+                              })
+                      }
+                    >
+                      {shareReady ? "Jetzt teilen" : "Teilen"}
                     </button>
                   )}
                 </div>
