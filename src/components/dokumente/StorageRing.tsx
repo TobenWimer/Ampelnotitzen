@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { publishOwnUsage, subscribeUsageStats, type UsageStats } from "@/lib/storageUsage";
 
-// Free-Tier-Limit fuer Firebase Storage (5 GB)
+// Free-Tier-Limit fuer Firebase Storage (5 GB). Gilt fuer das ganze Projekt,
+// nicht pro Person - deshalb der Gesamt-Modus im Ring
 const STORAGE_CAP_BYTES = 5 * 1024 * 1024 * 1024;
 
 function formatGB(bytes: number) {
@@ -27,29 +27,28 @@ export default function StorageRing({
   uid: string | null;
   activity: RingActivity;
 }) {
-  const [usedBytes, setUsedBytes] = useState(0);
+  const [stats, setStats] = useState<UsageStats>({ own: 0, total: 0, users: 0 });
+  // Klick auf die MEM-Saeule schaltet zwischen eigenem und Gesamtverbrauch um
+  const [showTotal, setShowTotal] = useState(false);
 
   useEffect(() => {
     if (!uid) {
-      setUsedBytes(0);
+      setStats({ own: 0, total: 0, users: 0 });
       return;
     }
-    const qRef = query(collection(db, "documents"), where("uid", "==", uid));
-    const unsub = onSnapshot(
-      qRef,
-      (snap) => {
-        let total = 0;
-        snap.forEach((d) => {
-          const sz = d.data().sizeBytes;
-          if (typeof sz === "number") total += sz;
-        });
-        setUsedBytes(total);
-      },
-      (err) => console.warn("storage usage error", err)
-    );
+    const unsub = subscribeUsageStats(uid, setStats);
     return () => unsub();
   }, [uid]);
 
+  // Eigenen Stand neu berechnen und veroeffentlichen: beim Oeffnen und immer wenn
+  // ein Upload/Download gerade fertig geworden ist
+  const busy = !!activity;
+  useEffect(() => {
+    if (!uid || busy) return;
+    publishOwnUsage(uid).catch(() => {});
+  }, [uid, busy]);
+
+  const usedBytes = showTotal ? stats.total : stats.own;
   const storagePct = Math.min(100, (usedBytes / STORAGE_CAP_BYTES) * 100);
   const pct = activity ? Math.min(100, activity.pct) : storagePct;
 
@@ -129,6 +128,9 @@ export default function StorageRing({
           sweeping
           sweepSec={7}
           label="MEM"
+          active={showTotal}
+          onClick={() => setShowTotal((v) => !v)}
+          title={showTotal ? "Zurück auf eigenen Speicher" : "Gesamtspeicher aller Nutzer anzeigen"}
         />
         <LevelBar
           fillPct={activity ? Math.min(100, activity.pct) : 0}
@@ -142,11 +144,24 @@ export default function StorageRing({
 
       <div className="text-[10px] leading-tight tracking-wide uppercase">
         <div style={{ color }} className="font-semibold">
-          {activity?.type === "upload" ? "Upload" : activity?.type === "download" ? "Download" : "Speicher"}
+          {activity?.type === "upload"
+            ? "Upload"
+            : activity?.type === "download"
+            ? "Download"
+            : showTotal
+            ? "Gesamt"
+            : "Speicher"}
         </div>
         <div className="text-cyan-300/50 normal-case tracking-normal">
           {activity ? "läuft…" : `${formatGB(usedBytes)} / 5 GB`}
         </div>
+        {!activity && (
+          <div className="text-cyan-300/30 normal-case tracking-normal text-[9px] mt-0.5">
+            {showTotal
+              ? `alle Nutzer${stats.users > 1 ? ` (${stats.users})` : ""}`
+              : "nur ich · Klick auf MEM"}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -160,16 +175,34 @@ function LevelBar({
   sweeping,
   sweepSec,
   label,
+  onClick,
+  active,
+  title,
 }: {
   fillPct: number;
   color: string;
   sweeping: boolean;
   sweepSec: number;
   label: string;
+  /** Gesetzt = Saeule ist anklickbar (aktuell nur MEM zum Umschalten der Anzeige) */
+  onClick?: () => void;
+  active?: boolean;
+  title?: string;
 }) {
+  const Wrapper = onClick ? "button" : "div";
+
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative h-20 w-4 rounded-md border border-cyan-400/20 bg-black/40 overflow-hidden">
+    <Wrapper
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`flex flex-col items-center gap-1 ${onClick ? "cursor-pointer" : ""}`}
+      style={onClick ? { background: "transparent", border: "none", padding: 0 } : undefined}
+    >
+      <div
+        className="relative h-20 w-4 rounded-md border bg-black/40 overflow-hidden transition-colors duration-200"
+        style={{ borderColor: active ? `${color}cc` : "rgba(34,211,238,0.2)" }}
+      >
         {[...Array(9)].map((_, i) => (
           <div key={i} className="absolute left-0 right-0 h-px bg-cyan-400/10" style={{ top: `${(i + 1) * 10}%` }} />
         ))}
@@ -192,7 +225,12 @@ function LevelBar({
           />
         )}
       </div>
-      <span className="text-[7px] tracking-widest text-cyan-300/35">{label}</span>
-    </div>
+      <span
+        className="text-[7px] tracking-widest transition-colors duration-200"
+        style={{ color: active ? color : "rgba(165,243,252,0.35)" }}
+      >
+        {label}
+      </span>
+    </Wrapper>
   );
 }

@@ -1,4 +1,4 @@
-import { collection, getDoc, getDocs, doc, query, where } from "firebase/firestore";
+import { collection, getDoc, getDocs, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { clipboardFiles, type ClipboardData } from "@/lib/clipboard";
 
@@ -41,6 +41,41 @@ export async function getUsedBytes(uid: string): Promise<number> {
   });
 
   return total;
+}
+
+// Die 5 GB gelten fuer das ganze Firebase-Projekt, nicht pro Person. Ein Client darf
+// aber nur seine eigenen Daten lesen, kann den Gesamtverbrauch also nicht selbst
+// zusammenrechnen. Deshalb schreibt jeder seinen eigenen Stand nach storageStats/{uid};
+// diese Sammlung duerfen alle Freigeschalteten lesen, die Summe ergibt das Gesamtbild.
+// Ungenau wird es nur, wenn jemand loescht und die App danach nie wieder oeffnet
+export async function publishOwnUsage(uid: string): Promise<number> {
+  const used = await getUsedBytes(uid);
+  try {
+    await setDoc(doc(db, "storageStats", uid), { usedBytes: used, updatedAt: Date.now() });
+  } catch {
+    // Anzeige ist nicht kritisch genug, um deswegen einen Upload scheitern zu lassen
+  }
+  return used;
+}
+
+export type UsageStats = { own: number; total: number; users: number };
+
+// Beobachtet den Verbrauch aller Nutzer live
+export function subscribeUsageStats(uid: string, onChange: (stats: UsageStats) => void) {
+  return onSnapshot(
+    collection(db, "storageStats"),
+    (snap) => {
+      let total = 0;
+      let own = 0;
+      snap.forEach((d) => {
+        const v = (d.data().usedBytes as number) ?? 0;
+        total += v;
+        if (d.id === uid) own = v;
+      });
+      onChange({ own, total, users: snap.size });
+    },
+    (err) => console.warn("storageStats error", err)
+  );
 }
 
 export type QuotaCheck = {

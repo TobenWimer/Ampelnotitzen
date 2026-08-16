@@ -242,6 +242,22 @@ service cloud.firestore {
     }
 
     /* =========================
+       Speicher-Statistik
+
+       Die 5 GB gelten fuer das ganze Projekt, nicht pro Person. Jeder schreibt
+       hier seinen eigenen Verbrauch hinein, lesen duerfen alle Freigeschalteten -
+       nur so laesst sich der Gesamtverbrauch anzeigen, ohne fremde Daten
+       offenzulegen. Enthaelt bewusst nur eine Zahl, keine Dateinamen.
+       ========================= */
+    match /storageStats/{userId} {
+      allow read: if isMember();
+      allow write: if isMember()
+                   && authUid() == userId
+                   && request.resource.data.keys().hasOnly(['usedBytes','updatedAt'])
+                   && request.resource.data.usedBytes is number;
+    }
+
+    /* =========================
        Intertransfer-Gates (oeffentliche Abholpunkte auf Zeit)
 
        Empfaenger sind bewusst NICHT angemeldet und auch nicht freigeschaltet: die
