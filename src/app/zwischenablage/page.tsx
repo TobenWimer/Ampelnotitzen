@@ -14,6 +14,7 @@ import {
   deleteClipboardFiles,
   clipboardFiles,
   isFileEntry,
+  setClipboardNoExpiry,
   ClipboardData,
 } from "@/lib/clipboard";
 import { downloadFileFromUrl } from "@/lib/download";
@@ -110,7 +111,7 @@ export default function ZwischenablagePage() {
   useEffect(() => {
     const t = setInterval(() => {
       forceTick((n) => n + 1);
-      if (user && data && isClipboardExpired(data.updatedAt)) {
+      if (user && data && isClipboardExpired(data)) {
         deleteClipboardFiles(clipboardFiles(data)).catch(() => {});
         deleteDoc(doc(db, "clipboard", user.uid)).catch(() => {});
       }
@@ -118,13 +119,15 @@ export default function ZwischenablagePage() {
     return () => clearInterval(t);
   }, [user, data]);
 
-  const expired = data ? isClipboardExpired(data.updatedAt) : false;
+  const expired = isClipboardExpired(data);
+  const noExpiry = !!data?.noExpiry;
   const visible = expired ? null : data;
   const files = clipboardFiles(visible);
   const hasFiles = isFileEntry(visible) && files.length > 0;
   const remainingMs = visible ? Math.max(0, CLIPBOARD_TTL_MS - (Date.now() - visible.updatedAt)) : 0;
   const remainingMin = visible ? Math.max(1, Math.ceil(remainingMs / 60000)) : 0;
-  const remainingFraction = visible ? remainingMs / CLIPBOARD_TTL_MS : 0;
+  // Ohne Ablauf ist der Ring immer voll, sonst wuerde er sinnlos leerlaufen
+  const remainingFraction = noExpiry ? 1 : visible ? remainingMs / CLIPBOARD_TTL_MS : 0;
   const ringR = 17;
   const ringC = 2 * Math.PI * ringR;
 
@@ -294,6 +297,12 @@ export default function ZwischenablagePage() {
     [runFileAction]
   );
 
+  const handleToggleExpiry = useCallback(async () => {
+    if (!user) return;
+    await setClipboardNoExpiry(user.uid, !noExpiry);
+    flash(!noExpiry ? "Ablauf aus." : "Ablauf an.");
+  }, [user, noExpiry, flash]);
+
   const handleShareNow = useCallback(async () => {
     if (!shareReady) return;
     setMenuOpen(false);
@@ -368,8 +377,8 @@ export default function ZwischenablagePage() {
             label={
               visible
                 ? hasFiles
-                  ? `${files.length} ${files.length === 1 ? "Datei" : "Dateien"} bereit · ${remainingMin}min`
-                  : `Text bereit · ${remainingMin}min`
+                  ? `${files.length} ${files.length === 1 ? "Datei" : "Dateien"} bereit${noExpiry ? "" : ` · ${remainingMin}min`}`
+                  : `Text bereit${noExpiry ? "" : ` · ${remainingMin}min`}`
                 : "Leitung frei"
             }
             remainingFraction={remainingFraction}
@@ -554,7 +563,9 @@ export default function ZwischenablagePage() {
                   Aktualisiert {timeAgo(visible.updatedAt)}
                 </span>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-[10px] text-cyan-300/50 tracking-wide">{remainingMin}min</span>
+                  <span className="text-[10px] text-cyan-300/50 tracking-wide">
+                    {noExpiry ? "dauerhaft" : `${remainingMin}min`}
+                  </span>
                   <svg width="30" height="30" viewBox="0 0 40 40">
                     <circle cx="20" cy="20" r={ringR} fill="none" stroke="rgba(34,211,238,0.15)" strokeWidth="3" />
                     <circle
@@ -575,9 +586,36 @@ export default function ZwischenablagePage() {
             </p>
           )}
         </div>
-        <p className="text-[10px] text-cyan-300/30 text-center mt-4 mb-8 tracking-wide">
-          Inhalt löscht sich automatisch nach 3 Minuten.
-        </p>
+        {/* Ablauf-Schalter: aus = Inhalt bleibt liegen bis er von Hand geloescht wird */}
+        <div className="flex items-center justify-center gap-3 mt-4 mb-8">
+          <button
+            onClick={handleToggleExpiry}
+            disabled={!user}
+            role="switch"
+            aria-checked={!noExpiry}
+            aria-label="Automatischer Ablauf"
+            title={noExpiry ? "Ablauf einschalten" : "Ablauf ausschalten, Inhalt bleibt liegen"}
+            className="relative h-5 w-9 rounded-full transition-colors duration-200 shrink-0 disabled:opacity-30"
+            style={{
+              background: noExpiry ? "rgba(148,163,184,0.25)" : "rgba(34,211,238,0.35)",
+              border: `1px solid ${noExpiry ? "rgba(148,163,184,0.4)" : "rgba(34,211,238,0.7)"}`,
+            }}
+          >
+            <span
+              className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full transition-all duration-200"
+              style={{
+                left: noExpiry ? "2px" : "calc(100% - 1.05rem)",
+                background: noExpiry ? "#94a3b8" : "#ecfeff",
+                boxShadow: noExpiry ? "none" : "0 0 8px rgba(34,211,238,0.9)",
+              }}
+            />
+          </button>
+          <span className="text-[10px] text-cyan-300/40 tracking-wide">
+            {noExpiry
+              ? "Kein Ablauf. Inhalt bleibt bis zum manuellen Löschen."
+              : "Inhalt löscht sich automatisch nach 3 Minuten."}
+          </span>
+        </div>
 
         {/* Intertransfer: Dateien per Link an Dritte ohne Account weitergeben */}
         <IntertransferPanel uid={user?.uid ?? null} />

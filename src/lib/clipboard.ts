@@ -3,9 +3,17 @@ import { ref, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { uploadFilesToStorage } from "@/lib/uploadFiles";
 
-// Geteilter Inhalt ist bewusst nur eine kurze Zeit gültig (Handoff-Zweck, kein Speicher)
+// Geteilter Inhalt ist standardmaessig nur eine kurze Zeit gültig (Handoff-Zweck,
+// kein Speicher). Per Schalter laesst sich der Ablauf abstellen, dann bleibt der
+// Inhalt liegen bis er von Hand geloescht wird
 export const CLIPBOARD_TTL_MS = 3 * 60 * 1000;
-export const isClipboardExpired = (updatedAt: number) => Date.now() - updatedAt > CLIPBOARD_TTL_MS;
+
+// Nimmt den ganzen Eintrag, weil der Ablauf jetzt vom noExpiry-Schalter abhaengt
+export function isClipboardExpired(data: ClipboardData | null): boolean {
+  if (!data) return false;
+  if (data.noExpiry) return false;
+  return Date.now() - data.updatedAt > CLIPBOARD_TTL_MS;
+}
 
 export type ClipboardFile = {
   fileName: string;
@@ -28,6 +36,8 @@ export type ClipboardData = {
   mimeType?: string;
   sizeBytes?: number;
   updatedAt: number;
+  /** true = kein automatischer Ablauf, Inhalt bleibt bis er von Hand geloescht wird */
+  noExpiry?: boolean;
 };
 
 // Vereinheitlicht altes Einzeldatei- und neues Mehrdatei-Format, damit die UI nur
@@ -91,11 +101,29 @@ export async function uploadClipboardFiles({
     kind: "files",
     files: [...keepFiles, ...uploaded],
     updatedAt: Date.now(),
+    // Schalter des bisherigen Eintrags uebernehmen, sonst laeuft neuer Inhalt
+    // wieder ab obwohl der Ablauf abgestellt war
+    ...(prevData?.noExpiry ? { noExpiry: true } : {}),
   });
 
   for (const p of prevPaths) {
     deleteObject(ref(storage, p)).catch(() => {});
   }
+}
+
+// Schaltet den automatischen Ablauf um. updatedAt bleibt beim Einschalten des
+// Ablaufs bewusst unveraendert - der Timer laeuft dann ab dem urspruenglichen
+// Zeitpunkt weiter statt neu zu starten. Existiert noch kein Eintrag, wird ein
+// leerer angelegt, damit die Einstellung schon vor dem ersten Inhalt gilt
+export async function setClipboardNoExpiry(uid: string, noExpiry: boolean) {
+  const snap = await getDoc(doc(db, "clipboard", uid));
+  const prev = snap.exists() ? (snap.data() as ClipboardData) : null;
+
+  await setDoc(
+    doc(db, "clipboard", uid),
+    { ...(prev ?? { updatedAt: Date.now() }), noExpiry },
+    { merge: true }
+  );
 }
 
 // Best effort: alle Storage-Objekte eines Ablage-Eintrags entfernen

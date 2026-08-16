@@ -222,7 +222,7 @@ service cloud.firestore {
                             && authUid() == userId
                             && request.resource.data.keys().hasOnly([
                               'kind','text','files','fileName','storagePath',
-                              'downloadURL','mimeType','sizeBytes','updatedAt'
+                              'downloadURL','mimeType','sizeBytes','updatedAt','noExpiry'
                             ])
                             && (
                                  !('text' in request.resource.data)

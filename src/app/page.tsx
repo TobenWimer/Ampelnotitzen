@@ -124,7 +124,7 @@ function ClipboardQuickCopy() {
   }, []);
 
   // Quick-Copy im Header bleibt bewusst auf Text beschraenkt (Bilder/Dateien -> /zwischenablage)
-  if (!entry || !entry.text || isClipboardExpired(entry.updatedAt)) return null;
+  if (!entry || !entry.text || isClipboardExpired(entry)) return null;
   const text = entry.text;
 
   const handleCopy = async () => {
