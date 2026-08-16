@@ -1,7 +1,8 @@
 import { collection, deleteDoc, doc, increment, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import type { ClipboardFile } from "@/lib/clipboard";
+import { uploadFilesToStorage } from "@/lib/uploadFiles";
 
 // Ein "Gate" ist ein zeitlich begrenzter, oeffentlicher Abholpunkt: der Ersteller laedt
 // Dateien hoch und verschickt den Link. Empfaenger brauchen keinen Account - die zufaellige
@@ -68,35 +69,11 @@ export async function createGate({
   if (files.length === 0) throw new Error("NO_FILES");
 
   const gateId = newGateId();
-  const uploaded: GateFile[] = [];
-  const total = files.length;
-
-  for (let i = 0; i < total; i++) {
-    const file = files[i];
-    const storagePath = `gateUploads/${uid}/${gateId}/${i}-${file.name}`;
-    const storageRef = ref(storage, storagePath);
-
-    await new Promise<void>((resolve, reject) => {
-      const task = uploadBytesResumable(storageRef, file);
-      task.on(
-        "state_changed",
-        (snap) => {
-          const filePct = snap.bytesTransferred / snap.totalBytes;
-          onProgress?.(Math.round(((i + filePct) / total) * 100));
-        },
-        reject,
-        () => resolve()
-      );
-    });
-
-    uploaded.push({
-      fileName: file.name,
-      storagePath,
-      downloadURL: await getDownloadURL(storageRef),
-      mimeType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-    });
-  }
+  const uploaded = await uploadFilesToStorage({
+    files,
+    pathFor: (file, i) => `gateUploads/${uid}/${gateId}/${i}-${file.name}`,
+    onProgress,
+  });
 
   const now = Date.now();
   const gate: Gate = {
@@ -175,37 +152,14 @@ export async function addFilesToGate({
 }) {
   if (files.length === 0) return;
 
-  const uploaded: GateFile[] = [];
-  const total = files.length;
-
-  for (let i = 0; i < total; i++) {
-    const file = files[i];
-    // Zeitstempel im Namen, damit ein zweiter Upload derselben Datei den ersten
-    // nicht ueberschreibt
-    const storagePath = `gateUploads/${gate.ownerUid}/${gate.id}/${Date.now()}-${i}-${file.name}`;
-    const storageRef = ref(storage, storagePath);
-
-    await new Promise<void>((resolve, reject) => {
-      const task = uploadBytesResumable(storageRef, file);
-      task.on(
-        "state_changed",
-        (snap) => {
-          const filePct = snap.bytesTransferred / snap.totalBytes;
-          onProgress?.(Math.round(((i + filePct) / total) * 100));
-        },
-        reject,
-        () => resolve()
-      );
-    });
-
-    uploaded.push({
-      fileName: file.name,
-      storagePath,
-      downloadURL: await getDownloadURL(storageRef),
-      mimeType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-    });
-  }
+  // Zeitstempel im Pfad, damit ein zweiter Upload derselben Datei den ersten
+  // nicht ueberschreibt
+  const stamp = Date.now();
+  const uploaded = await uploadFilesToStorage({
+    files,
+    pathFor: (file, i) => `gateUploads/${gate.ownerUid}/${gate.id}/${stamp}-${i}-${file.name}`,
+    onProgress,
+  });
 
   await updateDoc(doc(db, "gates", gate.id), { files: [...gate.files, ...uploaded] });
 }

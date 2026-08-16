@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
+import { uploadFilesToStorage } from "@/lib/uploadFiles";
 
 // Geteilter Inhalt ist bewusst nur eine kurze Zeit gültig (Handoff-Zweck, kein Speicher)
 export const CLIPBOARD_TTL_MS = 3 * 60 * 1000;
@@ -79,35 +80,12 @@ export async function uploadClipboardFiles({
   const keepFiles = append ? prevFiles : [];
   const prevPaths = append ? [] : prevFiles.map((f) => f.storagePath);
 
-  const uploaded: ClipboardFile[] = [];
-  const total = files.length;
-
-  for (let i = 0; i < total; i++) {
-    const file = files[i];
-    const storagePath = `clipboardUploads/${uid}/${Date.now()}-${i}-${file.name}`;
-    const storageRef = ref(storage, storagePath);
-
-    await new Promise<void>((resolve, reject) => {
-      const task = uploadBytesResumable(storageRef, file);
-      task.on(
-        "state_changed",
-        (snap) => {
-          const filePct = snap.bytesTransferred / snap.totalBytes;
-          onProgress?.(Math.round(((i + filePct) / total) * 100));
-        },
-        reject,
-        () => resolve()
-      );
-    });
-
-    uploaded.push({
-      fileName: file.name,
-      storagePath,
-      downloadURL: await getDownloadURL(storageRef),
-      mimeType: file.type || "application/octet-stream",
-      sizeBytes: file.size,
-    });
-  }
+  const stamp = Date.now();
+  const uploaded = await uploadFilesToStorage({
+    files,
+    pathFor: (file, i) => `clipboardUploads/${uid}/${stamp}-${i}-${file.name}`,
+    onProgress,
+  });
 
   await setDoc(doc(db, "clipboard", uid), {
     kind: "files",

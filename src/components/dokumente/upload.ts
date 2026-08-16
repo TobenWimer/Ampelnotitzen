@@ -1,56 +1,14 @@
 import { collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref, deleteObject } from "firebase/storage";
 import { db, storage } from "@/lib/firebase";
 import { downloadFileFromUrl } from "@/lib/download";
+import { uploadFilesToStorage } from "@/lib/uploadFiles";
 
 export { downloadFileFromUrl as downloadDocumentFile };
 
-// Laedt eine Datei direkt zu Firebase Storage hoch und legt danach das
-// Firestore-Dokument mit den Metadaten an (docKind: "file")
-export async function uploadDocumentFile({
-  file,
-  uid,
-  parentPathSlug,
-  onProgress,
-}: {
-  file: File;
-  uid: string;
-  parentPathSlug: string;
-  onProgress?: (pct: number) => void;
-}) {
-  const docRef = doc(collection(db, "documents"));
-  const storagePath = `documentUploads/${uid}/${docRef.id}/${file.name}`;
-  const storageRef = ref(storage, storagePath);
-
-  await new Promise<void>((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, file);
-    task.on(
-      "state_changed",
-      (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-      reject,
-      () => resolve()
-    );
-  });
-
-  const downloadURL = await getDownloadURL(storageRef);
-
-  await setDoc(docRef, {
-    name: file.name,
-    parentPathSlug,
-    uid,
-    color: "blue",
-    docKind: "file",
-    storagePath,
-    downloadURL,
-    mimeType: file.type || "application/octet-stream",
-    sizeBytes: file.size,
-    createdAt: serverTimestamp(),
-    createdAtClient: Date.now(),
-  });
-}
-
-// Laedt mehrere Dateien nacheinander hoch (Datei-Picker mit multiple oder Drag&Drop),
-// meldet den kombinierten Fortschritt ueber alle Dateien hinweg (gleich gewichtet pro Datei)
+// Laedt eine oder mehrere Dateien parallel hoch und legt je Datei ein
+// Firestore-Dokument mit den Metadaten an (docKind: "file").
+// Die Firestore-Schreibvorgaenge laufen gebuendelt am Ende, nicht nach jeder Datei
 export async function uploadMultipleFiles({
   files,
   uid,
@@ -62,17 +20,34 @@ export async function uploadMultipleFiles({
   parentPathSlug: string;
   onProgress?: (pct: number) => void;
 }) {
-  const total = files.length;
-  for (let i = 0; i < total; i++) {
-    await uploadDocumentFile({
-      file: files[i],
-      uid,
-      parentPathSlug,
-      onProgress: (filePct) => {
-        onProgress?.(Math.round(((i + filePct / 100) / total) * 100));
-      },
-    });
-  }
+  if (files.length === 0) return;
+
+  // Dokument-Referenzen vorab erzeugen, damit die id schon im Storage-Pfad steht
+  const docRefs = files.map(() => doc(collection(db, "documents")));
+
+  const uploaded = await uploadFilesToStorage({
+    files,
+    pathFor: (file, i) => `documentUploads/${uid}/${docRefs[i].id}/${file.name}`,
+    onProgress,
+  });
+
+  await Promise.all(
+    uploaded.map((u, i) =>
+      setDoc(docRefs[i], {
+        name: u.fileName,
+        parentPathSlug,
+        uid,
+        color: "blue",
+        docKind: "file",
+        storagePath: u.storagePath,
+        downloadURL: u.downloadURL,
+        mimeType: u.mimeType,
+        sizeBytes: u.sizeBytes,
+        createdAt: serverTimestamp(),
+        createdAtClient: Date.now() + i, // stabile Reihenfolge im Grid
+      })
+    )
+  );
 }
 
 // Best effort: Storage-Objekt entfernen, falls vorhanden. Fehler werden verschluckt,

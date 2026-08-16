@@ -4,35 +4,52 @@ import type { ClipboardFile } from "@/lib/clipboard";
 // Laedt eine Liste von Dateien herunter und meldet den Fortschritt bytegenau.
 // Frueher wurde pro fertiger Datei gezaehlt, wodurch die Anzeige bei zwei Dateien
 // von 0 auf 50 auf 100 sprang statt durchzulaufen
+const CONCURRENCY = 4;
+
 async function fetchAll(files: ClipboardFile[], onProgress?: (pct: number) => void) {
   const totalBytes = files.reduce((sum, f) => sum + (f.sizeBytes || 0), 0);
-  let doneBytes = 0;
 
-  const blobs: { file: ClipboardFile; blob: Blob }[] = [];
+  // Fortschritt je Datei getrennt fuehren, sonst zaehlen parallele Downloads durcheinander
+  const progressPerFile = new Array<number>(files.length).fill(0);
+  const report = () => {
+    if (!totalBytes) return;
+    const done = progressPerFile.reduce((a, b) => a + b, 0);
+    onProgress?.(Math.min(100, Math.round((done / totalBytes) * 100)));
+  };
 
-  for (const file of files) {
-    const res = await fetch(file.downloadURL);
-    const reader = res.body?.getReader();
+  const blobs = new Array<{ file: ClipboardFile; blob: Blob }>(files.length);
+  let next = 0;
 
-    if (!reader || totalBytes === 0) {
-      // Kein Stream verfuegbar: wenigstens nach jeder Datei melden
-      blobs.push({ file, blob: await res.blob() });
-      doneBytes += file.sizeBytes || 0;
-      onProgress?.(totalBytes ? Math.round((doneBytes / totalBytes) * 100) : 0);
-      continue;
-    }
-
-    const chunks: BlobPart[] = [];
+  async function worker() {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      doneBytes += value.length;
-      onProgress?.(Math.min(100, Math.round((doneBytes / totalBytes) * 100)));
+      const index = next++;
+      if (index >= files.length) return;
+
+      const file = files[index];
+      const res = await fetch(file.downloadURL);
+      const reader = res.body?.getReader();
+
+      if (!reader) {
+        blobs[index] = { file, blob: await res.blob() };
+        progressPerFile[index] = file.sizeBytes || 0;
+        report();
+        continue;
+      }
+
+      const chunks: BlobPart[] = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        progressPerFile[index] += value.length;
+        report();
+      }
+      blobs[index] = { file, blob: new Blob(chunks, { type: file.mimeType }) };
     }
-    blobs.push({ file, blob: new Blob(chunks, { type: file.mimeType }) });
   }
 
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker));
+  onProgress?.(100);
   return blobs;
 }
 
