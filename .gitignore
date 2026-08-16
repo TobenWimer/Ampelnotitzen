@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Einladungsseiten enthalten echte Zugangsschluessel - niemals commiten
+docs/Zugang-*.html
