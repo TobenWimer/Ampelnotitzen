@@ -9,12 +9,14 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "firebase": "^12.1.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.544.0",
     "next": "15.4.10",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -24,6 +26,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
+    "firebase-admin": "^14.2.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

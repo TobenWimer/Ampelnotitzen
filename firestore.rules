@@ -299,5 +299,19 @@ service cloud.firestore {
       allow delete: if isSignedIn() && authUid() == resource.data.ownerUid;
     }
 
+    /* =========================
+       cbrain-Vault (Migration nach Firestore, 2026-08-19)
+
+       Enthaelt Timons persoenliches Obsidian-Gedaechtnis (Personen, Projekte,
+       Entscheidungen, Wissen), inkl. hoch privater Inhalte. Der einzige vorgesehene
+       Zugriffsweg ist server-seitig ueber das Firebase Admin SDK (Migrationsskript,
+       spaeter der MCP-Connector-Server), das umgeht diese Regeln ohnehin. Fuer den
+       Client bleibt die Sammlung deshalb komplett gesperrt, analog zu accessKeys -
+       kein anderes Konto (auch nicht Nadines) soll sie je zu Gesicht bekommen.
+       ========================= */
+    match /cbrainEntries/{entryId} {
+      allow read, write: if false;
+    }
+
   }
 }
