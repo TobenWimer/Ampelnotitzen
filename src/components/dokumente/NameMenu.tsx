@@ -25,6 +25,7 @@ export function ItemNameMenu({
   const [open, setOpen] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [align, setAlign] = useState<"left" | "right">("left");
+  const [vAlign, setVAlign] = useState<"down" | "up">("down");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -44,22 +45,32 @@ export function ItemNameMenu({
     };
   }, [open]);
 
-  // Verhindert, dass das Menu rechts aus dem sichtbaren Bereich rausrutscht:
-  // nach dem Aufklappen (und bei Groessenaenderung durch die Farbpalette) die
-  // tatsaechliche Position messen statt sie blind anzunehmen. useLayoutEffect
-  // statt useEffect, damit die Korrektur vor dem ersten sichtbaren Frame passiert
-  // und nicht erst kurz links aufblitzt.
+  // Verhindert, dass das Menu aus dem sichtbaren Bereich rausrutscht (rechts UND
+  // unten, das Zweite war der eigentliche vom Handy gemeldete Fall): nach dem
+  // Aufklappen (und bei Groessenaenderung durch die Farbpalette) die tatsaechliche
+  // Position messen statt sie blind anzunehmen. useLayoutEffect statt useEffect,
+  // damit die Korrektur vor dem ersten sichtbaren Frame passiert und nicht erst
+  // kurz an der falschen Stelle aufblitzt.
   useLayoutEffect(() => {
     if (!open) {
       setAlign("left");
+      setVAlign("down");
       return;
     }
     const check = () => {
       const el = menuRef.current;
-      if (!el) return;
+      const btn = rootRef.current;
+      if (!el || !btn) return;
       const rect = el.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
       const margin = 8;
       setAlign(rect.right > window.innerWidth - margin ? "right" : "left");
+      // Nur nach oben klappen, wenn oben tatsaechlich mehr Platz ist, sonst
+      // wuerde ein Button nahe am oberen Rand das Menu dort ebenso abschneiden.
+      const overflowsBelow = rect.bottom > window.innerHeight - margin;
+      const roomAbove = btnRect.top;
+      const roomBelow = window.innerHeight - btnRect.bottom;
+      setVAlign(overflowsBelow && roomAbove > roomBelow ? "up" : "down");
     };
     check();
     window.addEventListener("resize", check);
@@ -76,9 +87,9 @@ export function ItemNameMenu({
         <div
           ref={menuRef}
           role="menu"
-          className={`dhud-menu absolute top-full mt-2 z-50 min-w-44 rounded-xl overflow-hidden ${
+          className={`dhud-menu absolute z-50 min-w-44 rounded-xl overflow-y-auto overflow-x-hidden max-h-[min(70vh,26rem)] ${
             align === "right" ? "right-0" : "left-0"
-          }`}
+          } ${vAlign === "up" ? "bottom-full mb-2" : "top-full mt-2"}`}
         >
           {onDownload && (
             <button

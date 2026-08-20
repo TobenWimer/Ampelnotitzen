@@ -7,6 +7,7 @@ import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { HudFooter } from "@/components/hud/HudFooter";
 import { PortfolioCore } from "@/components/hud/PortfolioCore";
 
 type Trade = {
@@ -446,6 +447,7 @@ export default function TrackerPage() {
           onCloseTrade={(exitAmt, closeDate) => closeTrade((modal as { type: "detail"; potIndex: number }).potIndex, exitAmt, closeDate)} />
       )}
 
+      <HudFooter />
       <HudGlobalStyles />
     </div>
   );

@@ -17,6 +17,7 @@ import {
 import { doc, onSnapshot } from "firebase/firestore";
 import { isClipboardExpired, ClipboardData } from "@/lib/clipboard";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { HudFooter } from "@/components/hud/HudFooter";
 import { ReactorEmblem } from "@/components/hud/ReactorEmblem";
 
 type Module = {
@@ -203,6 +204,7 @@ export default function Home() {
             ))}
           </div>
         </div>
+        <HudFooter />
         <HudGlobalStyles />
       </main>
     </Protected>

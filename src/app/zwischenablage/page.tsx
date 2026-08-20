@@ -26,6 +26,7 @@ import { ChannelLight } from "@/components/hud/ChannelLight";
 import { beginTransfer } from "@/lib/transferChannel";
 import { IntertransferPanel } from "@/components/hud/IntertransferPanel";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { HudFooter } from "@/components/hud/HudFooter";
 
 function timeAgo(ts: number): string {
   const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -600,6 +601,7 @@ export default function ZwischenablagePage() {
         <IntertransferPanel uid={user?.uid ?? null} />
       </div>
 
+      <HudFooter />
       <HudStyles />
       {/* zusaetzlich zum lokalen zwa-Stilsystem, da die TransferLine die hud-Klassen nutzt */}
       <HudGlobalStyles />

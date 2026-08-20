@@ -24,6 +24,7 @@ import type { DocKind, Folder, DocItem, GridItem, FolderColor } from "@/componen
 import { FolderTile, DocumentTile } from "@/components/dokumente/Tiles";
 import { ItemNameMenu } from "@/components/dokumente/NameMenu";
 import DokumenteHudStyles from "@/components/dokumente/HudStyles";
+import { HudFooter } from "@/components/hud/HudFooter";
 import { uploadMultipleFiles, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
 import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
@@ -599,7 +600,7 @@ export default function DokumenteRootPage() {
 
   return (
     <div
-      className="min-h-screen dhud-bg text-cyan-50 relative overflow-hidden font-mono"
+      className="min-h-screen dhud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -627,7 +628,7 @@ export default function DokumenteRootPage() {
         <ChannelLight />
       </header>
 
-      <div className="relative z-10 p-6 md:p-8 max-w-6xl mx-auto">
+      <div className="relative z-10 flex-1 p-6 md:p-8 max-w-6xl mx-auto w-full">
         {/* Actions */}
         <div className="flex items-center justify-end mb-8 flex-wrap gap-3">
 
@@ -925,6 +926,7 @@ export default function DokumenteRootPage() {
         />
       )}
 
+      <HudFooter dotClassName="dhud-dot" />
       <DokumenteHudStyles />
     </div>
   );

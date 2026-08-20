@@ -7,6 +7,7 @@ import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { HudFooter } from "@/components/hud/HudFooter";
 import { BioScanRadar, RadarAxis } from "@/components/hud/BioScanRadar";
 
 type CategoryKey =
@@ -296,6 +297,7 @@ export default function DailyRecapPage() {
         </div>
       )}
 
+      <HudFooter />
       <HudGlobalStyles />
     </div>
   );

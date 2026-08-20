@@ -24,6 +24,7 @@ import type { DocKind, Folder, DocItem, GridItem, FolderColor } from "@/componen
 import { FolderTile, DocumentTile } from "@/components/dokumente/Tiles";
 import { ItemNameMenu } from "@/components/dokumente/NameMenu";
 import DokumenteHudStyles from "@/components/dokumente/HudStyles";
+import { HudFooter } from "@/components/hud/HudFooter";
 import { uploadMultipleFiles, deleteDocumentFile, downloadDocumentFile } from "@/components/dokumente/upload";
 import { downloadFolderAsZip } from "@/components/dokumente/zip";
 import StorageRing from "@/components/dokumente/StorageRing";
@@ -606,7 +607,7 @@ export default function AnyDepthFolderPage() {
 
   return (
     <div
-      className="min-h-screen dhud-bg text-cyan-50 relative overflow-hidden font-mono"
+      className="min-h-screen dhud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -634,7 +635,7 @@ export default function AnyDepthFolderPage() {
         <ChannelLight />
       </header>
 
-      <div className="relative z-10 p-6 md:p-8 max-w-6xl mx-auto">
+      <div className="relative z-10 flex-1 p-6 md:p-8 max-w-6xl mx-auto w-full">
         {/* Breadcrumbs + Actions */}
         <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
           <nav className="text-xs text-cyan-300/60 tracking-wide">
@@ -963,6 +964,7 @@ export default function AnyDepthFolderPage() {
         />
       )}
 
+      <HudFooter dotClassName="dhud-dot" />
       <DokumenteHudStyles />
     </div>
   );

@@ -28,6 +28,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
+import { HudFooter } from "@/components/hud/HudFooter";
 import { SignalTower } from "@/components/hud/SignalTower";
 
 /* =========================
@@ -577,7 +578,7 @@ export default function NotesPage() {
   /* Render */
 
   return (
-    <div className="min-h-screen hud-bg text-cyan-50 relative overflow-hidden font-mono">
+    <div className="min-h-screen hud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono">
       <div className="hud-grid pointer-events-none absolute inset-0" />
 
       {/* Einheitlicher Header wie in den anderen Modulen */}
@@ -595,7 +596,7 @@ export default function NotesPage() {
         </span>
       </header>
 
-      <div className="relative z-10 p-6 md:p-8 max-w-5xl mx-auto">
+      <div className="relative z-10 flex-1 p-6 md:p-8 max-w-5xl mx-auto w-full">
         {/* Ampel-Statusmast */}
         <div className="mb-8">
           <SignalTower counts={signalCounts} activeFilter={colorFilter} onFilter={setColorFilter} />
@@ -825,6 +826,7 @@ export default function NotesPage() {
         )}
       </div>
 
+      <HudFooter />
       <HudGlobalStyles />
     </div>
   );
