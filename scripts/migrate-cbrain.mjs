@@ -12,9 +12,10 @@
 //                                                   zeigt nur was passieren wuerde
 //   node scripts/migrate-cbrain.mjs --write      -> schreibt wirklich nach Firestore
 //
-// Ausgelassen werden bewusst die drei Bootstrap-Dateien in MOCs/ (System-Prompt,
-// Profile, Timon-Uebersicht) - die werden weiterhin lokal/im Chat komplett gelesen,
-// ein Firestore-Eintrag dafuer bringt keinen Nutzen.
+// MOCs/ wird seit 2026-08-20 mitmigriert (siehe Decisions/2026-08-20-cbrain-MCP-Server-und-OAuth.md):
+// /cbrain und /cbrain-cleanup lesen die Bootstrap-Dateien (System-Prompt, Profile,
+// Timon-Uebersicht) jetzt ueber den MCP-Connector statt lokal, damit sie auch vom
+// Handy aus funktionieren.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -25,7 +26,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const VAULT_ROOT = "C:\\Dateien_Timon\\Master\\Obsidian_ClaudeMemory\\Claude-Memory";
-const SKIP_FOLDERS = new Set(["MOCs"]);
+const SKIP_FOLDERS = new Set();
 const SERVICE_ACCOUNT_PATH = path.join(__dirname, "prod.serviceaccount.json");
 
 const isWrite = process.argv.includes("--write");
