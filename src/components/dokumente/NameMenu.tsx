@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { hudColor, HUD_COLOR_ORDER } from "./hud";
 import type { FolderColor } from "./types";
 
@@ -24,7 +24,9 @@ export function ItemNameMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  const [align, setAlign] = useState<"left" | "right">("left");
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -42,6 +44,28 @@ export function ItemNameMenu({
     };
   }, [open]);
 
+  // Verhindert, dass das Menu rechts aus dem sichtbaren Bereich rausrutscht:
+  // nach dem Aufklappen (und bei Groessenaenderung durch die Farbpalette) die
+  // tatsaechliche Position messen statt sie blind anzunehmen. useLayoutEffect
+  // statt useEffect, damit die Korrektur vor dem ersten sichtbaren Frame passiert
+  // und nicht erst kurz links aufblitzt.
+  useLayoutEffect(() => {
+    if (!open) {
+      setAlign("left");
+      return;
+    }
+    const check = () => {
+      const el = menuRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const margin = 8;
+      setAlign(rect.right > window.innerWidth - margin ? "right" : "left");
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [open, showPalette]);
+
   return (
     <div ref={rootRef} className="relative flex justify-center">
       <button onClick={() => setOpen((v) => !v)} className="dhud-name-btn" title={name}>
@@ -49,7 +73,13 @@ export function ItemNameMenu({
       </button>
 
       {open && (
-        <div role="menu" className="dhud-menu absolute top-full mt-2 z-50 min-w-44 rounded-xl overflow-hidden">
+        <div
+          ref={menuRef}
+          role="menu"
+          className={`dhud-menu absolute top-full mt-2 z-50 min-w-44 rounded-xl overflow-hidden ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+        >
           {onDownload && (
             <button
               onClick={() => { setOpen(false); onDownload(); }}

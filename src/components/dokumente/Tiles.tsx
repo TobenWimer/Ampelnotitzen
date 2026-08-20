@@ -58,6 +58,12 @@ export function DocumentTile({
   const glow = hudColor(doc.color);
   const isFile = doc.docKind === "file";
   const isImage = isFile && !!doc.mimeType?.startsWith("image/");
+  // PDFs zeigt der Browser beim direkten Link inline an, alles andere (Word, Excel,
+  // Zip, ...) kennt er nicht und laedt es beim Klick sofort ungefragt herunter statt
+  // es zu oeffnen. Fuer diese Typen bleibt die Kachel deshalb bewusst nicht klickbar,
+  // "Herunterladen" im Menuepunkt darunter macht das kontrolliert.
+  const isPdf = isFile && doc.mimeType === "application/pdf";
+  const canOpenDirectly = isImage || isPdf;
   const Icon = isFile ? (isImage ? ImageIcon : FileIcon) : FileText;
   const ext = isFile ? fileExt(doc.name) : null;
 
@@ -94,6 +100,15 @@ export function DocumentTile({
 
   if (isFile) {
     const useLightbox = isImage && showPreview && !!onOpenPreview;
+
+    if (!canOpenDirectly) {
+      return (
+        <div title={doc.name} className={className} style={style}>
+          {inner}
+        </div>
+      );
+    }
+
     return (
       <a
         href={doc.downloadURL}

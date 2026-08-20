@@ -541,13 +541,20 @@ export default function NotesPage() {
 
   /* Abgeleitete Daten */
 
+  // Nur Notizen der aktuell gefilterten Kategorie zaehlen (bei "Alle" alle),
+  // damit der Statusmast zur sichtbaren Liste passt statt immer global zu zaehlen.
+  const notesInScope = useMemo(
+    () => (filter === "ALL" ? notes : notes.filter((n) => (n.categoryId ?? null) === filter)),
+    [notes, filter]
+  );
+
   const signalCounts = useMemo(
     () => ({
-      green: notes.filter((n) => n.color === "green").length,
-      yellow: notes.filter((n) => n.color === "yellow").length,
-      red: notes.filter((n) => n.color === "red").length,
+      green: notesInScope.filter((n) => n.color === "green").length,
+      yellow: notesInScope.filter((n) => n.color === "yellow").length,
+      red: notesInScope.filter((n) => n.color === "red").length,
     }),
-    [notes]
+    [notesInScope]
   );
 
   const filteredNotes = useMemo(() => {
