@@ -313,5 +313,23 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /* =========================
+       OAuth fuer den cbrain-MCP-Connector (2026-08-20)
+
+       Client-Registrierungen, kurzlebige Authorization Codes und ausgestellte
+       Access-Tokens fuer den Minimal-OAuth-Server unter /api/oauth/*. Genau wie
+       cbrainEntries: ausschliesslich server-seitig ueber das Admin SDK erreichbar,
+       fuer jeden Client komplett gesperrt.
+       ========================= */
+    match /mcpOAuthClients/{clientId} {
+      allow read, write: if false;
+    }
+    match /mcpOAuthCodes/{codeId} {
+      allow read, write: if false;
+    }
+    match /mcpOAuthTokens/{tokenId} {
+      allow read, write: if false;
+    }
+
   }
 }

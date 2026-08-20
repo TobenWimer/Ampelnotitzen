@@ -6,14 +6,32 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { listEntries, readEntry, searchEntries, writeEntry } from "@/lib/cbrainStore";
+import { verifyToken } from "@/lib/oauthStore";
 
 export const runtime = "nodejs";
 
-function isAuthorized(req: Request): boolean {
-  const expected = process.env.CBRAIN_MCP_TOKEN;
-  if (!expected) return false;
+// Zwei gueltige Wege rein: der feste CBRAIN_MCP_TOKEN (fuer eigene Skripte/Tests)
+// oder ein per OAuth-Flow ausgestellter Token (fuer den claude.ai-Connector).
+async function isAuthorized(req: Request): Promise<boolean> {
   const header = req.headers.get("authorization") ?? "";
-  return header === `Bearer ${expected}`;
+  const match = header.match(/^Bearer (.+)$/);
+  if (!match) return false;
+  const token = match[1];
+
+  const staticToken = process.env.CBRAIN_MCP_TOKEN;
+  if (staticToken && token === staticToken) return true;
+
+  return verifyToken(token);
+}
+
+function unauthorizedResponse(req: Request): Response {
+  const origin = new URL(req.url).origin;
+  return new Response("Unauthorized", {
+    status: 401,
+    headers: {
+      "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+    },
+  });
 }
 
 function buildServer(): McpServer {
@@ -99,8 +117,8 @@ function buildServer(): McpServer {
 }
 
 async function handle(req: Request): Promise<Response> {
-  if (!isAuthorized(req)) {
-    return new Response("Unauthorized", { status: 401 });
+  if (!(await isAuthorized(req))) {
+    return unauthorizedResponse(req);
   }
 
   const server = buildServer();
