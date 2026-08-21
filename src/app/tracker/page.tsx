@@ -10,6 +10,16 @@ import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 import { HudFooter } from "@/components/hud/HudFooter";
 import { PortfolioCore } from "@/components/hud/PortfolioCore";
 
+// Ein Nachkauf: Nadine/Timon geben nur den aktuellen CHF-Wert der bestehenden
+// Position an (valueBeforeChf) plus den neu eingezahlten Betrag (addedChf).
+// Der aktuelle Kurs ergibt sich daraus rechnerisch (valueBeforeChf / receivedAmt
+// vor diesem Nachkauf), ohne dass ein Kurs separat eingegeben werden muss.
+type TopUp = {
+  date: string;
+  addedChf: number;
+  valueBeforeChf: number;
+};
+
 type Trade = {
   asset: string;
   type: string;
@@ -18,6 +28,7 @@ type Trade = {
   currency: string;
   entryFx: number;
   entryDate: string;
+  topUps?: TopUp[];
 };
 
 type HistoryEntry = {
@@ -41,6 +52,7 @@ type GlobalHistoryEntry = {
   exitChf: number;
   plChf: number;
   plPct: number;
+  topUps?: TopUp[];
 };
 
 type Pot = {
@@ -110,28 +122,51 @@ function buildPotTimeline(
   let currentVal = 0;
 
   potHistory.forEach((h, i) => {
+    // Nachkaeufe innerhalb dieses (bereits geschlossenen) Trades als Sprung
+    // abbilden: investedChf ist zu diesem Zeitpunkt schon die Summe aus
+    // Ersteinstieg + allen Nachkaeufen, der urspruengliche Ersteinstieg laesst
+    // sich durch Abzug der Nachkaeufe zurueckrechnen.
+    const topUps = h.topUps ?? [];
+    const totalAdded = topUps.reduce((s, tu) => s + tu.addedChf, 0);
+    const originalInvested = h.investedChf - totalAdded;
+
     if (i === 0) {
-      // Allererster Entry: starte bei investedChf
-      points.push({ date: h.entryDate, val: h.investedChf, isClose: false });
+      // Allererster Entry: starte bei der urspruenglichen Einzahlung
+      points.push({ date: h.entryDate, val: originalInvested, isClose: false });
     } else {
       // Weiterer Trade: Entry zeigt aktuellen Stand (exitChf des vorherigen)
       points.push({ date: h.entryDate, val: currentVal, isClose: false });
-      // Dann springe auf investedChf dieses Trades (das Kapital ist jetzt investiert)
-      points.push({ date: h.entryDate, val: h.investedChf + (currentVal - currentVal), isClose: false });
+      // Dann springe auf die urspruengliche Einzahlung dieses Trades
+      points.push({ date: h.entryDate, val: originalInvested, isClose: false });
     }
+    topUps.forEach(tu => {
+      // Vor dem Nachkauf: Wert der bestehenden Position (organisches Wachstum)
+      points.push({ date: tu.date, val: tu.valueBeforeChf, isClose: false });
+      // Danach: Sprung auf Position + frisches Geld
+      points.push({ date: tu.date, val: tu.valueBeforeChf + tu.addedChf, isClose: false });
+    });
     currentVal = h.exitChf;
     points.push({ date: h.closeDate, val: currentVal, isClose: true });
   });
 
   if (pot?.trade) {
     const t = pot.trade;
-    if (potHistory.length === 0) {
-      // Nur offener Trade, keine History
-      points.push({ date: t.entryDate, val: t.investedChf, isClose: false });
-    } else {
-      points.push({ date: t.entryDate, val: t.investedChf, isClose: false });
-    }
-    points.push({ date: today, val: t.investedChf, isClose: false });
+    const topUps = t.topUps ?? [];
+    const totalAdded = topUps.reduce((s, tu) => s + tu.addedChf, 0);
+    const originalInvested = t.investedChf - totalAdded;
+
+    points.push({ date: t.entryDate, val: originalInvested, isClose: false });
+    // Letzter bekannter Wert: entweder der letzte Nachkauf-Schnappschuss
+    // (aktueller als investedChf, da vom Nutzer neu bestaetigt) oder ohne
+    // Nachkauf die urspruengliche Einzahlung. Ohne Live-Kurs bleibt der Graph
+    // ab hier flach bis heute, genau wie bisher.
+    let lastKnownValue = originalInvested;
+    topUps.forEach(tu => {
+      points.push({ date: tu.date, val: tu.valueBeforeChf, isClose: false });
+      lastKnownValue = tu.valueBeforeChf + tu.addedChf;
+      points.push({ date: tu.date, val: lastKnownValue, isClose: false });
+    });
+    points.push({ date: today, val: lastKnownValue, isClose: false });
   } else if (potHistory.length > 0) {
     // Freier Pot: bleibt flat auf letztem exitChf bis heute
     points.push({ date: today, val: currentVal, isClose: false });
@@ -281,6 +316,32 @@ export default function TrackerPage() {
     setModal(null);
   }, [data, save]);
 
+  const topUpTrade = useCallback((potIndex: number, addedChf: number, valueBeforeChf: number, date: string) => {
+    const pot = data.pots[potIndex];
+    if (!pot.trade) return;
+    const t = pot.trade;
+    // Aktueller Kurs ergibt sich aus dem gemeldeten aktuellen Wert der
+    // bestehenden Position, keine separate Kurseingabe noetig.
+    const currentFx = t.currency === "CHF" ? 1 : valueBeforeChf / t.receivedAmt;
+    const addedRecv = t.currency === "CHF" ? addedChf : addedChf / currentFx;
+    const newReceivedAmt = t.receivedAmt + addedRecv;
+    const newInvestedChf = t.investedChf + addedChf;
+    const newEntryFx = t.currency === "CHF" ? 1 : newInvestedChf / newReceivedAmt;
+    const next = { ...data, pots: [...data.pots] };
+    next.pots[potIndex] = {
+      ...pot,
+      trade: {
+        ...t,
+        investedChf: newInvestedChf,
+        receivedAmt: newReceivedAmt,
+        entryFx: newEntryFx,
+        topUps: [...(t.topUps ?? []), { date, addedChf, valueBeforeChf }],
+      },
+    };
+    save(next);
+    setModal(null);
+  }, [data, save]);
+
   const closeTrade = useCallback((potIndex: number, exitAmt: number, closeDate: string) => {
     const pot = data.pots[potIndex];
     if (!pot.trade) return;
@@ -292,6 +353,7 @@ export default function TrackerPage() {
       potNr: pot.nr, asset: t.asset, type: t.type, entryDate: t.entryDate,
       closeDate, investedChf: t.investedChf, currency: t.currency,
       receivedAmt: t.receivedAmt, exitAmt, entryFx: t.entryFx, exitChf, plChf, plPct,
+      topUps: t.topUps,
     };
     const next = { ...data, pots: [...data.pots], history: [histEntry, ...data.history] };
     next.pots[potIndex] = {
@@ -399,7 +461,10 @@ export default function TrackerPage() {
                   <div>
                     <p className="text-sm font-medium text-cyan-100">Pot {h.potNr} · {h.asset}</p>
                     <p className="text-[11px] text-cyan-300/40 mt-0.5">{h.type} · {fmtDate(h.entryDate)} → {fmtDate(h.closeDate)}</p>
-                    <p className="text-[11px] text-cyan-300/40">{fmtAbs(h.investedChf)} CHF · {h.receivedAmt.toFixed(4)} {h.currency} → {h.exitAmt.toFixed(4)} {h.currency}</p>
+                    <p className="text-[11px] text-cyan-300/40">
+                      {fmtAbs(h.investedChf)} CHF · {h.receivedAmt.toFixed(4)} {h.currency} → {h.exitAmt.toFixed(4)} {h.currency}
+                      {h.topUps && h.topUps.length > 0 && ` · ${h.topUps.length}× nachgekauft`}
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className={`font-bold text-sm tabular-nums ${h.plChf >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{fmtPct(h.plPct)}</p>
@@ -444,7 +509,8 @@ export default function TrackerPage() {
       )}
       {modal !== null && modal.type === "detail" && (
         <DetailModal pot={data.pots[modal.potIndex]} onClose={() => setModal(null)}
-          onCloseTrade={(exitAmt, closeDate) => closeTrade((modal as { type: "detail"; potIndex: number }).potIndex, exitAmt, closeDate)} />
+          onCloseTrade={(exitAmt, closeDate) => closeTrade((modal as { type: "detail"; potIndex: number }).potIndex, exitAmt, closeDate)}
+          onTopUp={(addedChf, valueBeforeChf, date) => topUpTrade((modal as { type: "detail"; potIndex: number }).potIndex, addedChf, valueBeforeChf, date)} />
       )}
 
       <HudFooter />
@@ -534,8 +600,10 @@ function EntryModal({ pot, onClose, onSubmit }: {
   );
 }
 
-function DetailModal({ pot, onClose, onCloseTrade }: {
-  pot: Pot; onClose: () => void; onCloseTrade: (exitAmt: number, closeDate: string) => void;
+function DetailModal({ pot, onClose, onCloseTrade, onTopUp }: {
+  pot: Pot; onClose: () => void;
+  onCloseTrade: (exitAmt: number, closeDate: string) => void;
+  onTopUp: (addedChf: number, valueBeforeChf: number, date: string) => void;
 }) {
   const t = pot.trade!;
   const [exitAmt, setExitAmt] = useState("");
@@ -554,13 +622,36 @@ function DetailModal({ pot, onClose, onCloseTrade }: {
     if (isNaN(n)) { alert("Bitte Ausstiegsbetrag eingeben."); return; }
     onCloseTrade(n, closeDate);
   };
+
+  const [topUpValueBefore, setTopUpValueBefore] = useState("");
+  const [topUpAdded, setTopUpAdded] = useState("");
+  const [topUpDate, setTopUpDate] = useState(new Date().toISOString().slice(0, 10));
+  const vBefore = parseFloat(topUpValueBefore);
+  const added = parseFloat(topUpAdded);
+  const topUpPreview = !isNaN(vBefore) && !isNaN(added) && vBefore > 0
+    ? (() => {
+        const currentFx = t.currency === "CHF" ? 1 : vBefore / t.receivedAmt;
+        const addedRecv = t.currency === "CHF" ? added : added / currentFx;
+        const newReceivedAmt = t.receivedAmt + addedRecv;
+        const newInvestedChf = t.investedChf + added;
+        return { newInvestedChf, newReceivedAmt, newEntryFx: newInvestedChf / newReceivedAmt };
+      })()
+    : null;
+  const handleTopUp = () => {
+    if (isNaN(vBefore) || vBefore <= 0 || isNaN(added) || added <= 0) {
+      alert("Bitte aktuellen Wert und Nachkauf-Betrag eingeben.");
+      return;
+    }
+    onTopUp(added, vBefore, topUpDate);
+  };
+
   return (
     <Modal title={`Pot ${pot.nr} · ${t.asset}`} onClose={onClose}>
       <div className="grid grid-cols-2 gap-3 mb-4">
         {[
           { label: "Investiert", value: fmtAbs(t.investedChf) + " CHF" },
           { label: `Betrag (${t.currency})`, value: t.receivedAmt.toFixed(4) + " " + t.currency },
-          { label: "Entry FX", value: t.currency === "CHF" ? "—" : t.entryFx.toFixed(4) },
+          { label: "Ø Entry FX", value: t.currency === "CHF" ? "—" : t.entryFx.toFixed(4) },
           { label: "Datum", value: fmtDate(t.entryDate) },
         ].map(k => (
           <div key={k.label} className="rounded-lg bg-black/40 border border-cyan-400/20 p-3">
@@ -569,6 +660,18 @@ function DetailModal({ pot, onClose, onCloseTrade }: {
           </div>
         ))}
       </div>
+
+      {t.topUps && t.topUps.length > 0 && (
+        <div className="mb-4 rounded-lg bg-black/30 border border-cyan-400/15 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-cyan-300/40 mb-1.5">Bisherige Nachkäufe</p>
+          {t.topUps.map((tu, i) => (
+            <p key={i} className="text-[11px] text-cyan-300/50 tabular-nums">
+              {fmtDate(tu.date)} · +{fmtAbs(tu.addedChf)} CHF (Position damals wert: {fmtAbs(tu.valueBeforeChf)} CHF)
+            </p>
+          ))}
+        </div>
+      )}
+
       <Field label={`Aktueller Wert (${t.currency}) — P/L Vorschau`}>
         <input type="number" placeholder={t.receivedAmt.toFixed(4)} onChange={e => updatePreview(e.target.value)} className={inputCls} />
       </Field>
@@ -577,7 +680,29 @@ function DetailModal({ pot, onClose, onCloseTrade }: {
           P/L: {fmt(preview.plChf)} CHF / {fmtPct(preview.plPct)}
         </p>
       )}
+
       <div className="border-t border-cyan-400/15 pt-4 mt-2">
+        <p className="text-[10px] font-medium text-cyan-300/40 mb-3 uppercase tracking-wider">Nachkaufen</p>
+        <Field label="Aktueller Wert der Position (CHF)">
+          <input type="number" value={topUpValueBefore} onChange={e => setTopUpValueBefore(e.target.value)} placeholder={t.investedChf.toFixed(2)} className={inputCls} />
+        </Field>
+        <Field label="Neu investiert (CHF)">
+          <input type="number" value={topUpAdded} onChange={e => setTopUpAdded(e.target.value)} placeholder="z.B. 200" className={inputCls} />
+        </Field>
+        <Field label="Datum">
+          <input type="date" value={topUpDate} onChange={e => setTopUpDate(e.target.value)} className={inputCls} />
+        </Field>
+        {topUpPreview && (
+          <p className="text-[11px] text-cyan-300/50 mb-3 tabular-nums">
+            Neu: {fmtAbs(topUpPreview.newInvestedChf)} CHF · {topUpPreview.newReceivedAmt.toFixed(4)} {t.currency} · Ø-Kurs {topUpPreview.newEntryFx.toFixed(4)}
+          </p>
+        )}
+        <div className="flex justify-end">
+          <button onClick={handleTopUp} className={btnPrimaryCls}>Nachkauf bestätigen</button>
+        </div>
+      </div>
+
+      <div className="border-t border-cyan-400/15 pt-4 mt-4">
         <p className="text-[10px] font-medium text-cyan-300/40 mb-3 uppercase tracking-wider">Trade schliessen</p>
         <Field label={`Ausstiegsbetrag (${t.currency})`}>
           <input type="number" value={exitAmt} onChange={e => updatePreview(e.target.value)} placeholder="z.B. 580" className={inputCls} />
