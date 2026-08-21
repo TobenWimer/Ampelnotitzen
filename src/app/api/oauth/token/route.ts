@@ -45,7 +45,7 @@ export async function POST(req: Request) {
     return errorResponse("invalid_grant");
   }
 
-  const { token, expiresInSeconds } = await issueToken(stored.clientId);
+  const { token, expiresInSeconds } = await issueToken(stored.clientId, stored.resource);
 
   return Response.json({
     access_token: token,

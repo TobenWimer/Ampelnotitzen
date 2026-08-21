@@ -21,7 +21,8 @@ async function isAuthorized(req: Request): Promise<boolean> {
   const staticToken = process.env.CBRAIN_MCP_TOKEN;
   if (staticToken && token === staticToken) return true;
 
-  return verifyToken(token);
+  const origin = new URL(req.url).origin;
+  return verifyToken(token, `${origin}/api/mcp`);
 }
 
 function unauthorizedResponse(req: Request): Response {

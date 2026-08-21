@@ -7,17 +7,34 @@ import { getClient, createAuthCode, verifyPassphrase } from "@/lib/oauthStore";
 
 export const runtime = "nodejs";
 
+const RESOURCE_LABELS: Record<string, string> = {
+  "/api/mcp": "cbrain",
+  "/api/apple": "Apple Kalender & Erinnerungen",
+};
+
+function resourceLabel(resource: string | null): string {
+  if (!resource) return "cbrain";
+  try {
+    const path = new URL(resource).pathname;
+    return RESOURCE_LABELS[path] ?? resource;
+  } catch {
+    return resource;
+  }
+}
+
 function renderForm(params: URLSearchParams, error?: string): Response {
-  const hidden = ["client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method"]
+  const hidden = ["client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "resource"]
     .map((key) => {
       const value = params.get(key) ?? "";
       return `<input type="hidden" name="${key}" value="${value.replace(/"/g, "&quot;")}">`;
     })
     .join("\n");
 
+  const label = resourceLabel(params.get("resource"));
+
   const html = `<!doctype html>
 <html lang="de"><head><meta charset="utf-8">
-<title>cbrain – Zugriff bestätigen</title>
+<title>${label} – Zugriff bestätigen</title>
 <style>
   body { background:#050708; color:#e6f6ff; font-family:system-ui,sans-serif;
          display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
@@ -32,7 +49,7 @@ function renderForm(params: URLSearchParams, error?: string): Response {
 </style></head>
 <body>
   <form method="post">
-    <h1>cbrain – Zugriff bestätigen</h1>
+    <h1>${label} – Zugriff bestätigen</h1>
     ${error ? `<div class="err">${error}</div>` : ""}
     <input type="password" name="passphrase" placeholder="Passphrase" autofocus required>
     ${hidden}
@@ -96,7 +113,12 @@ export async function POST(req: Request) {
     return redirectError(redirectUri, "invalid_request", params.get("state"));
   }
 
-  const code = await createAuthCode({ clientId: params.get("client_id")!, redirectUri, codeChallenge });
+  const code = await createAuthCode({
+    clientId: params.get("client_id")!,
+    redirectUri,
+    codeChallenge,
+    resource: params.get("resource") ?? undefined,
+  });
 
   const url = new URL(redirectUri);
   url.searchParams.set("code", code);

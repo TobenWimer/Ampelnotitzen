@@ -12,20 +12,34 @@ import {
   listReminders,
   createReminder,
 } from "@/lib/appleCalendarStore";
+import { verifyToken } from "@/lib/oauthStore";
 
 export const runtime = "nodejs";
 
-function isAuthorized(req: Request): boolean {
+// Zwei gueltige Wege rein: der feste APPLE_MCP_TOKEN (fuer eigene Skripte/Tests)
+// oder ein per OAuth-Flow ausgestellter, auf diese Resource beschraenkter Token
+// (fuer Claude Desktop/claude.ai als Connector, siehe src/lib/oauthStore.ts).
+async function isAuthorized(req: Request): Promise<boolean> {
   const header = req.headers.get("authorization") ?? "";
   const match = header.match(/^Bearer (.+)$/);
   if (!match) return false;
+  const token = match[1];
 
   const staticToken = process.env.APPLE_MCP_TOKEN;
-  return Boolean(staticToken) && match[1] === staticToken;
+  if (staticToken && token === staticToken) return true;
+
+  const origin = new URL(req.url).origin;
+  return verifyToken(token, `${origin}/api/apple`);
 }
 
-function unauthorizedResponse(): Response {
-  return new Response("Unauthorized", { status: 401 });
+function unauthorizedResponse(req: Request): Response {
+  const origin = new URL(req.url).origin;
+  return new Response("Unauthorized", {
+    status: 401,
+    headers: {
+      "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/apple"`,
+    },
+  });
 }
 
 function buildServer(): McpServer {
@@ -123,8 +137,8 @@ function buildServer(): McpServer {
 }
 
 async function handle(req: Request): Promise<Response> {
-  if (!isAuthorized(req)) {
-    return unauthorizedResponse();
+  if (!(await isAuthorized(req))) {
+    return unauthorizedResponse(req);
   }
 
   const server = buildServer();
