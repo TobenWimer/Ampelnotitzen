@@ -9,8 +9,12 @@ import {
   listCalendars,
   listEvents,
   createEvent,
+  updateEvent,
+  deleteEvent,
   listReminders,
   createReminder,
+  updateReminder,
+  deleteReminder,
 } from "@/lib/appleCalendarStore";
 import { verifyToken } from "@/lib/oauthStore";
 
@@ -67,7 +71,8 @@ function buildServer(): McpServer {
       title: "Termine auflisten",
       description:
         "Listet Termine aus einem Kalender (calendarUrl, siehe list_calendars) in einem " +
-        "Zeitraum. start und end als ISO-8601-Zeitstempel.",
+        "Zeitraum. start und end als ISO-8601-Zeitstempel. Jeder Termin liefert url und etag, " +
+        "die fuer update_event/delete_event gebraucht werden.",
       inputSchema: { calendarUrl: z.string(), start: z.string(), end: z.string() },
     },
     async ({ calendarUrl, start, end }) => {
@@ -99,12 +104,49 @@ function buildServer(): McpServer {
   );
 
   server.registerTool(
+    "update_event",
+    {
+      title: "Termin bearbeiten",
+      description:
+        "Ueberschreibt einen bestehenden Termin komplett (url/etag aus list_events). Alle " +
+        "Felder ausser description/location muessen mitgegeben werden, auch wenn unveraendert.",
+      inputSchema: {
+        url: z.string(),
+        etag: z.string().optional(),
+        summary: z.string(),
+        start: z.string(),
+        end: z.string(),
+        description: z.string().optional(),
+        location: z.string().optional(),
+      },
+    },
+    async ({ url, etag, summary, start, end, description, location }) => {
+      await updateEvent({ url, etag, summary, start, end, description, location });
+      return { content: [{ type: "text", text: "Termin aktualisiert." }] };
+    }
+  );
+
+  server.registerTool(
+    "delete_event",
+    {
+      title: "Termin löschen",
+      description: "Loescht einen Termin unwiderruflich (url/etag aus list_events).",
+      inputSchema: { url: z.string(), etag: z.string().optional() },
+    },
+    async ({ url, etag }) => {
+      await deleteEvent({ url, etag });
+      return { content: [{ type: "text", text: "Termin geloescht." }] };
+    }
+  );
+
+  server.registerTool(
     "list_reminders",
     {
       title: "Erinnerungen auflisten",
       description:
         "Listet Erinnerungen aus einer Erinnerungsliste (calendarUrl mit components VTODO, " +
-        "siehe list_calendars).",
+        "siehe list_calendars). Jede Erinnerung liefert url und etag, die fuer " +
+        "update_reminder/delete_reminder gebraucht werden.",
       inputSchema: { calendarUrl: z.string() },
     },
     async ({ calendarUrl }) => {
@@ -130,6 +172,41 @@ function buildServer(): McpServer {
     async ({ calendarUrl, summary, due, notes }) => {
       const result = await createReminder({ calendarUrl, summary, due, notes });
       return { content: [{ type: "text", text: `Erinnerung angelegt: ${result.uid}` }] };
+    }
+  );
+
+  server.registerTool(
+    "update_reminder",
+    {
+      title: "Erinnerung bearbeiten",
+      description:
+        "Ueberschreibt eine bestehende Erinnerung komplett (url/etag aus list_reminders), " +
+        "inklusive erledigt/nicht erledigt (completed).",
+      inputSchema: {
+        url: z.string(),
+        etag: z.string().optional(),
+        summary: z.string(),
+        due: z.string().optional(),
+        notes: z.string().optional(),
+        completed: z.boolean().optional(),
+      },
+    },
+    async ({ url, etag, summary, due, notes, completed }) => {
+      await updateReminder({ url, etag, summary, due, notes, completed });
+      return { content: [{ type: "text", text: "Erinnerung aktualisiert." }] };
+    }
+  );
+
+  server.registerTool(
+    "delete_reminder",
+    {
+      title: "Erinnerung löschen",
+      description: "Loescht eine Erinnerung unwiderruflich (url/etag aus list_reminders).",
+      inputSchema: { url: z.string(), etag: z.string().optional() },
+    },
+    async ({ url, etag }) => {
+      await deleteReminder({ url, etag });
+      return { content: [{ type: "text", text: "Erinnerung geloescht." }] };
     }
   );
 

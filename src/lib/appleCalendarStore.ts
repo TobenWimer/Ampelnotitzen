@@ -35,6 +35,8 @@ export type CalendarInfo = {
 
 export type EventEntry = {
   uid: string;
+  url: string;
+  etag?: string;
   summary: string;
   start: string;
   end: string;
@@ -44,6 +46,8 @@ export type EventEntry = {
 
 export type ReminderEntry = {
   uid: string;
+  url: string;
+  etag?: string;
   summary: string;
   due?: string;
   completed: boolean;
@@ -84,6 +88,8 @@ export async function listEvents(input: {
       if (!start || !end) continue;
       events.push({
         uid: event.uid,
+        url: obj.url,
+        etag: obj.etag,
         summary: event.summary ?? "",
         start: start.toISOString(),
         end: end.toISOString(),
@@ -116,6 +122,27 @@ export async function createEvent(input: {
   return { uid };
 }
 
+export async function updateEvent(input: {
+  url: string;
+  etag?: string;
+  summary: string;
+  start: string;
+  end: string;
+  description?: string;
+  location?: string;
+}): Promise<void> {
+  const client = await getClient();
+  const iCalString = buildEventIcs({ uid: uidFromUrl(input.url), ...input });
+  await client.updateCalendarObject({
+    calendarObject: { url: input.url, etag: input.etag, data: iCalString },
+  });
+}
+
+export async function deleteEvent(input: { url: string; etag?: string }): Promise<void> {
+  const client = await getClient();
+  await client.deleteCalendarObject({ calendarObject: { url: input.url, etag: input.etag } });
+}
+
 const VTODO_FILTER = [
   {
     "comp-filter": {
@@ -142,6 +169,8 @@ export async function listReminders(input: { calendarUrl: string }): Promise<Rem
       const due = vtodo.getFirstPropertyValue("due") as ICAL.Time | null;
       reminders.push({
         uid: vtodo.getFirstPropertyValue("uid") as string,
+        url: obj.url,
+        etag: obj.etag,
         summary: (vtodo.getFirstPropertyValue("summary") as string) ?? "",
         due: due ? due.toJSDate().toISOString() : undefined,
         completed: vtodo.getFirstPropertyValue("status") === "COMPLETED",
@@ -169,6 +198,31 @@ export async function createReminder(input: {
   });
 
   return { uid };
+}
+
+export async function updateReminder(input: {
+  url: string;
+  etag?: string;
+  summary: string;
+  due?: string;
+  notes?: string;
+  completed?: boolean;
+}): Promise<void> {
+  const client = await getClient();
+  const iCalString = buildReminderIcs({ uid: uidFromUrl(input.url), ...input });
+  await client.updateCalendarObject({
+    calendarObject: { url: input.url, etag: input.etag, data: iCalString },
+  });
+}
+
+export async function deleteReminder(input: { url: string; etag?: string }): Promise<void> {
+  const client = await getClient();
+  await client.deleteCalendarObject({ calendarObject: { url: input.url, etag: input.etag } });
+}
+
+function uidFromUrl(url: string): string {
+  const filename = url.split("/").pop() ?? "";
+  return filename.replace(/\.ics$/, "");
 }
 
 function toIcsDate(iso: string): string {
@@ -204,17 +258,25 @@ function buildEventIcs(input: {
   return lines.join("\r\n");
 }
 
-function buildReminderIcs(input: { uid: string; summary: string; due?: string; notes?: string }): string {
+function buildReminderIcs(input: {
+  uid: string;
+  summary: string;
+  due?: string;
+  notes?: string;
+  completed?: boolean;
+}): string {
+  const now = toIcsDate(new Date().toISOString());
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//OneStepBehind//Apple Connector//DE",
     "BEGIN:VTODO",
     `UID:${input.uid}`,
-    `DTSTAMP:${toIcsDate(new Date().toISOString())}`,
+    `DTSTAMP:${now}`,
     `SUMMARY:${escapeIcsText(input.summary)}`,
-    "STATUS:NEEDS-ACTION",
+    input.completed ? "STATUS:COMPLETED" : "STATUS:NEEDS-ACTION",
   ];
+  if (input.completed) lines.push(`COMPLETED:${now}`);
   if (input.due) lines.push(`DUE:${toIcsDate(input.due)}`);
   if (input.notes) lines.push(`DESCRIPTION:${escapeIcsText(input.notes)}`);
   lines.push("END:VTODO", "END:VCALENDAR");
