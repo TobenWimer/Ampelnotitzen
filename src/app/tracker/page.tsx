@@ -10,14 +10,18 @@ import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 import { HudFooter } from "@/components/hud/HudFooter";
 import { PortfolioCore } from "@/components/hud/PortfolioCore";
 
-// Ein Nachkauf: Nadine/Timon geben nur den aktuellen CHF-Wert der bestehenden
-// Position an (valueBeforeChf) plus den neu eingezahlten Betrag (addedChf).
-// Der aktuelle Kurs ergibt sich daraus rechnerisch (valueBeforeChf / receivedAmt
-// vor diesem Nachkauf), ohne dass ein Kurs separat eingegeben werden muss.
+// Ein Nachkauf: Eingabe komplett in der Zielwaehrung (z.B. USD), keine CHF-Eingabe
+// noetig. valueBeforeTarget/addedTarget sind das, was tatsaechlich eingegeben wird;
+// addedChf/valueBeforeChf sind daraus abgeleitet (mit dem bisherigen Entry-FX
+// umgerechnet, konsistent mit dem Rest der App: echte FX-Bewegung wird bewusst nicht
+// nachverfolgt) und dienen dem Graph sowie der CHF-Kostenbasis.
 type TopUp = {
   date: string;
   addedChf: number;
   valueBeforeChf: number;
+  // Optional: aeltere Nachkaeufe vor der Umstellung auf Zielwaehrung-Eingabe haben nur addedChf/valueBeforeChf
+  addedTarget?: number;
+  valueBeforeTarget?: number;
 };
 
 type Trade = {
@@ -316,15 +320,16 @@ export default function TrackerPage() {
     setModal(null);
   }, [data, save]);
 
-  const topUpTrade = useCallback((potIndex: number, addedChf: number, valueBeforeChf: number, date: string) => {
+  const topUpTrade = useCallback((potIndex: number, addedTarget: number, valueBeforeTarget: number, date: string) => {
     const pot = data.pots[potIndex];
     if (!pot.trade) return;
     const t = pot.trade;
-    // Aktueller Kurs ergibt sich aus dem gemeldeten aktuellen Wert der
-    // bestehenden Position, keine separate Kurseingabe noetig.
-    const currentFx = t.currency === "CHF" ? 1 : valueBeforeChf / t.receivedAmt;
-    const addedRecv = t.currency === "CHF" ? addedChf : addedChf / currentFx;
-    const newReceivedAmt = t.receivedAmt + addedRecv;
+    // Beide Eingaben sind in der Zielwaehrung. Menge addiert sich direkt (gleiche
+    // Einheit wie receivedAmt), fuer die CHF-Kostenbasis wird mit dem bisherigen
+    // Entry-FX umgerechnet statt eine neue Kurseingabe zu verlangen.
+    const addedChf = t.currency === "CHF" ? addedTarget : addedTarget * t.entryFx;
+    const valueBeforeChf = t.currency === "CHF" ? valueBeforeTarget : valueBeforeTarget * t.entryFx;
+    const newReceivedAmt = valueBeforeTarget + addedTarget;
     const newInvestedChf = t.investedChf + addedChf;
     const newEntryFx = t.currency === "CHF" ? 1 : newInvestedChf / newReceivedAmt;
     const next = { ...data, pots: [...data.pots] };
@@ -335,7 +340,7 @@ export default function TrackerPage() {
         investedChf: newInvestedChf,
         receivedAmt: newReceivedAmt,
         entryFx: newEntryFx,
-        topUps: [...(t.topUps ?? []), { date, addedChf, valueBeforeChf }],
+        topUps: [...(t.topUps ?? []), { date, addedChf, valueBeforeChf, addedTarget, valueBeforeTarget }],
       },
     };
     save(next);
@@ -630,10 +635,9 @@ function DetailModal({ pot, onClose, onCloseTrade, onTopUp }: {
   const added = parseFloat(topUpAdded);
   const topUpPreview = !isNaN(vBefore) && !isNaN(added) && vBefore > 0
     ? (() => {
-        const currentFx = t.currency === "CHF" ? 1 : vBefore / t.receivedAmt;
-        const addedRecv = t.currency === "CHF" ? added : added / currentFx;
-        const newReceivedAmt = t.receivedAmt + addedRecv;
-        const newInvestedChf = t.investedChf + added;
+        const addedChf = t.currency === "CHF" ? added : added * t.entryFx;
+        const newReceivedAmt = vBefore + added;
+        const newInvestedChf = t.investedChf + addedChf;
         return { newInvestedChf, newReceivedAmt, newEntryFx: newInvestedChf / newReceivedAmt };
       })()
     : null;
@@ -666,7 +670,12 @@ function DetailModal({ pot, onClose, onCloseTrade, onTopUp }: {
           <p className="text-[10px] uppercase tracking-wider text-cyan-300/40 mb-1.5">Bisherige Nachkäufe</p>
           {t.topUps.map((tu, i) => (
             <p key={i} className="text-[11px] text-cyan-300/50 tabular-nums">
-              {fmtDate(tu.date)} · +{fmtAbs(tu.addedChf)} CHF (Position damals wert: {fmtAbs(tu.valueBeforeChf)} CHF)
+              {tu.addedTarget != null && tu.valueBeforeTarget != null ? (
+                <>{fmtDate(tu.date)} · +{tu.addedTarget.toFixed(4)} {t.currency} (Position damals wert: {tu.valueBeforeTarget.toFixed(4)} {t.currency})</>
+              ) : (
+                // Aeltere Nachkaeufe vor der Umstellung auf Zielwaehrung-Eingabe, nur CHF gespeichert
+                <>{fmtDate(tu.date)} · +{fmtAbs(tu.addedChf)} CHF (Position damals wert: {fmtAbs(tu.valueBeforeChf)} CHF)</>
+              )}
             </p>
           ))}
         </div>
@@ -683,10 +692,10 @@ function DetailModal({ pot, onClose, onCloseTrade, onTopUp }: {
 
       <div className="border-t border-cyan-400/15 pt-4 mt-2">
         <p className="text-[10px] font-medium text-cyan-300/40 mb-3 uppercase tracking-wider">Nachkaufen</p>
-        <Field label="Aktueller Wert der Position (CHF)">
-          <input type="number" value={topUpValueBefore} onChange={e => setTopUpValueBefore(e.target.value)} placeholder={t.investedChf.toFixed(2)} className={inputCls} />
+        <Field label={`Aktueller Wert der Position (${t.currency})`}>
+          <input type="number" value={topUpValueBefore} onChange={e => setTopUpValueBefore(e.target.value)} placeholder={t.receivedAmt.toFixed(4)} className={inputCls} />
         </Field>
-        <Field label="Neu investiert (CHF)">
+        <Field label={`Neu investiert (${t.currency})`}>
           <input type="number" value={topUpAdded} onChange={e => setTopUpAdded(e.target.value)} placeholder="z.B. 200" className={inputCls} />
         </Field>
         <Field label="Datum">
