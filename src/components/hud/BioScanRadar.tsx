@@ -48,6 +48,7 @@ export function BioScanRadar({
 
   const avg = axes.reduce((s, a) => s + a.value, 0) / axes.length;
   const delta = avg - 5;
+  const selectedAxis = axes.find((a) => a.key === selectedKey) ?? null;
 
   return (
     <div className="flex flex-col items-center">
@@ -154,13 +155,30 @@ export function BioScanRadar({
           );
         })}
 
-        {/* Mittelwert im Zentrum */}
-        <text x={CX} y={CY - 2} textAnchor="middle" fontSize="15" fontWeight="bold" fill="#ecfeff">
-          {delta >= 0 ? "+" : ""}{delta.toFixed(1)}
-        </text>
-        <text x={CX} y={CY + 9} textAnchor="middle" fontSize="6" fill="rgba(165,243,252,0.55)" letterSpacing="1">
-          Ø DELTA
-        </text>
+        {/* Mittelwert im Zentrum, bei Auswahl stattdessen die Tageszahl der Kategorie */}
+        {selectedAxis ? (
+          <>
+            <text
+              x={CX} y={CY - 2} textAnchor="middle" fontSize="17" fontWeight="bold"
+              fill={selectedAxis.color}
+              style={{ filter: `drop-shadow(0 0 5px ${selectedAxis.color})`, transition: "all 0.3s ease" }}
+            >
+              {selectedAxis.value}
+            </text>
+            <text x={CX} y={CY + 9} textAnchor="middle" fontSize="6" fill="rgba(165,243,252,0.7)" letterSpacing="1">
+              {selectedAxis.label.toUpperCase()}
+            </text>
+          </>
+        ) : (
+          <>
+            <text x={CX} y={CY - 2} textAnchor="middle" fontSize="15" fontWeight="bold" fill="#ecfeff">
+              {delta >= 0 ? "+" : ""}{delta.toFixed(1)}
+            </text>
+            <text x={CX} y={CY + 9} textAnchor="middle" fontSize="6" fill="rgba(165,243,252,0.55)" letterSpacing="1">
+              Ø DELTA
+            </text>
+          </>
+        )}
       </svg>
 
       <div className="text-[10px] tracking-[0.2em] uppercase text-cyan-400/60 mt-1">

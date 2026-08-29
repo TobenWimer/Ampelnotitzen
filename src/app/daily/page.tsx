@@ -5,39 +5,39 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { doc, setDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged, User } from "firebase/auth";
+import { SlidersHorizontal, Pencil, Trash2, Plus } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
 import { HudFooter } from "@/components/hud/HudFooter";
 import { BioScanRadar, RadarAxis } from "@/components/hud/BioScanRadar";
 
-type CategoryKey =
-  | "energie"
-  | "fokus"
-  | "disziplin"
-  | "produktivitaet"
-  | "stimmung"
-  | "bewegung"
-  | "ernaehrung"
-  | "soziales";
+type Category = { key: string; label: string; color: string };
 
-const CATEGORIES: { key: CategoryKey; label: string }[] = [
-  { key: "energie", label: "Energie / Schlaf" },
-  { key: "fokus", label: "Fokus / Konzentration" },
-  { key: "disziplin", label: "Disziplin / Selbstkontrolle" },
-  { key: "produktivitaet", label: "Produktivität" },
-  { key: "stimmung", label: "Stimmung / Mentalität" },
-  { key: "bewegung", label: "Bewegung / Sport" },
-  { key: "ernaehrung", label: "Ernährung" },
-  { key: "soziales", label: "Soziales / Umfeld" },
+const CATEGORY_COLORS = ["#38bdf8","#4ade80","#f87171","#a78bfa","#fbbf24","#2dd4bf","#f472b6","#a3e635"];
+const OVERALL_COLOR = "#f8fafc";
+
+// Ausgangs-Set, greift nur solange Timon noch keine eigenen Kategorien angelegt/geloescht
+// hat (data.categories fehlt dann in Firestore noch). Keys bleiben stabil, damit bereits
+// gespeicherte Eintraege unter denselben Schluesseln lesbar bleiben
+const DEFAULT_CATEGORIES: Category[] = [
+  { key: "energie", label: "Energie / Schlaf", color: CATEGORY_COLORS[0] },
+  { key: "fokus", label: "Fokus / Konzentration", color: CATEGORY_COLORS[1] },
+  { key: "disziplin", label: "Disziplin / Selbstkontrolle", color: CATEGORY_COLORS[2] },
+  { key: "produktivitaet", label: "Produktivität", color: CATEGORY_COLORS[3] },
+  { key: "stimmung", label: "Stimmung / Mentalität", color: CATEGORY_COLORS[4] },
+  { key: "bewegung", label: "Bewegung / Sport", color: CATEGORY_COLORS[5] },
+  { key: "ernaehrung", label: "Ernährung", color: CATEGORY_COLORS[6] },
+  { key: "soziales", label: "Soziales / Umfeld", color: CATEGORY_COLORS[7] },
 ];
 
 type DayEntry = {
   date: string; // YYYY-MM-DD
-  values: Record<CategoryKey, number>;
+  values: Record<string, number>;
 };
 
 type DailyRecapData = {
   entries: DayEntry[];
+  categories?: Category[];
 };
 
 const MONTH_SHORT = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
@@ -47,15 +47,15 @@ const fmtDate = (iso: string) => {
 };
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const defaultValues = (): Record<CategoryKey, number> =>
-  Object.fromEntries(CATEGORIES.map((c) => [c.key, 5])) as Record<CategoryKey, number>;
+const defaultValues = (categories: Category[]): Record<string, number> =>
+  Object.fromEntries(categories.map((c) => [c.key, 5]));
 
-const avgDelta = (values: Record<CategoryKey, number>) =>
-  CATEGORIES.reduce((s, c) => s + (values[c.key] - 5), 0) / CATEGORIES.length;
+const avgDelta = (values: Record<string, number>, categories: Category[]) =>
+  categories.length === 0 ? 0 : categories.reduce((s, c) => s + ((values[c.key] ?? 5) - 5), 0) / categories.length;
 
 const fmtDelta = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
 
-const CATEGORY_COLORS = ["#38bdf8","#4ade80","#f87171","#a78bfa","#fbbf24","#2dd4bf","#f472b6","#a3e635"];
+const newCategoryKey = () => `cat_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 type ContextMenu = { x: number; y: number; date: string } | null;
 
@@ -64,13 +64,21 @@ export default function DailyRecapPage() {
   const [user, setUser] = useState<User | null>(null);
   const [data, setData] = useState<DailyRecapData>({ entries: [] });
   const [loading, setLoading] = useState(true);
-  const [values, setValues] = useState<Record<CategoryKey, number>>(defaultValues());
+  const [values, setValues] = useState<Record<string, number>>({});
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<"eintrag" | "verlauf" | "charts">("eintrag");
   const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
   const [radarSelected, setRadarSelected] = useState<string | null>(null);
+  const [editCategories, setEditCategories] = useState(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [newCatLabel, setNewCatLabel] = useState("");
 
   const today = todayIso();
+
+  const categories = useMemo(
+    () => (data.categories && data.categories.length > 0 ? data.categories : DEFAULT_CATEGORIES),
+    [data.categories]
+  );
 
   const sortedEntries = useMemo(
     () => [...data.entries].sort((a, b) => b.date.localeCompare(a.date)),
@@ -83,13 +91,13 @@ export default function DailyRecapPage() {
 
   const radarAxes: RadarAxis[] = useMemo(() => {
     if (!lastEntry) return [];
-    return CATEGORIES.map((c, i) => ({
+    return categories.map((c) => ({
       key: c.key,
       label: c.label.split(" / ")[0],
-      value: lastEntry.values[c.key],
-      color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+      value: lastEntry.values[c.key] ?? 5,
+      color: c.color,
     }));
-  }, [lastEntry]);
+  }, [lastEntry, categories]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -107,8 +115,9 @@ export default function DailyRecapPage() {
       (snap) => {
         const next = snap.exists() ? (snap.data() as DailyRecapData) : { entries: [] };
         setData(next);
+        const cats = next.categories && next.categories.length > 0 ? next.categories : DEFAULT_CATEGORIES;
         const todayEntry = next.entries.find((e) => e.date === today);
-        setValues(todayEntry ? todayEntry.values : defaultValues());
+        setValues({ ...defaultValues(cats), ...(todayEntry?.values ?? {}) });
         setLoading(false);
       },
       (err) => {
@@ -125,27 +134,57 @@ export default function DailyRecapPage() {
     return () => window.removeEventListener("click", close);
   }, []);
 
-  const setValue = useCallback((key: CategoryKey, v: number) => {
+  const setValue = useCallback((key: string, v: number) => {
     setValues((prev) => ({ ...prev, [key]: v }));
     setSaved(false);
   }, []);
 
   const save = useCallback(async () => {
     if (!user) return;
+    const cleanValues = Object.fromEntries(categories.map((c) => [c.key, values[c.key] ?? 5]));
     const otherEntries = data.entries.filter((e) => e.date !== today);
-    const next: DailyRecapData = { entries: [...otherEntries, { date: today, values }] };
+    const next: DailyRecapData = { ...data, entries: [...otherEntries, { date: today, values: cleanValues }] };
     setData(next);
     await setDoc(doc(db, "dailyRecap", user.uid), next);
     setSaved(true);
-  }, [user, data, today, values]);
+  }, [user, data, today, values, categories]);
 
   const deleteEntry = useCallback(async (date: string) => {
     if (!user) return;
-    const next: DailyRecapData = { entries: data.entries.filter((e) => e.date !== date) };
+    const next: DailyRecapData = { ...data, entries: data.entries.filter((e) => e.date !== date) };
     setData(next);
     await setDoc(doc(db, "dailyRecap", user.uid), next);
     setContextMenu(null);
   }, [user, data]);
+
+  const addCategory = useCallback(async (label: string) => {
+    if (!user || !label.trim()) return;
+    const key = newCategoryKey();
+    const color = CATEGORY_COLORS[categories.length % CATEGORY_COLORS.length];
+    const nextCategories = [...categories, { key, label: label.trim(), color }];
+    const next: DailyRecapData = { ...data, categories: nextCategories };
+    setData(next);
+    setValues((prev) => ({ ...prev, [key]: 5 }));
+    await setDoc(doc(db, "dailyRecap", user.uid), next);
+  }, [user, data, categories]);
+
+  const renameCategory = useCallback(async (key: string, label: string) => {
+    if (!user || !label.trim()) return;
+    const nextCategories = categories.map((c) => (c.key === key ? { ...c, label: label.trim() } : c));
+    const next: DailyRecapData = { ...data, categories: nextCategories };
+    setData(next);
+    await setDoc(doc(db, "dailyRecap", user.uid), next);
+  }, [user, data, categories]);
+
+  const deleteCategory = useCallback(async (key: string) => {
+    if (!user || categories.length <= 1) return;
+    const nextCategories = categories.filter((c) => c.key !== key);
+    const next: DailyRecapData = { ...data, categories: nextCategories };
+    setData(next);
+    setValues((prev) => { const rest = { ...prev }; delete rest[key]; return rest; });
+    if (radarSelected === key) setRadarSelected(null);
+    await setDoc(doc(db, "dailyRecap", user.uid), next);
+  }, [user, data, categories, radarSelected]);
 
   if (loading) return (
     <div className="min-h-screen hud-bg flex items-center justify-center">
@@ -200,25 +239,70 @@ export default function DailyRecapPage() {
 
         {tab === "eintrag" && (
           <div>
-            <p className="text-xs text-cyan-300/50 mb-6 tracking-wide">
-              &gt; {fmtDate(today)} · 5 = gleich wie gestern, &lt;5 schlechter, &gt;5 besser
-            </p>
+            <div className="flex items-center justify-between mb-6">
+              <p className="text-xs text-cyan-300/50 tracking-wide">
+                &gt; {fmtDate(today)} · 5 = gleich wie gestern, &lt;5 schlechter, &gt;5 besser
+              </p>
+              <button
+                onClick={() => { setEditCategories((v) => !v); setEditingKey(null); }}
+                className={`p-1 rounded transition ${editCategories ? "text-cyan-300" : "text-cyan-400/25 hover:text-cyan-300/70"}`}
+                title="Kategorien bearbeiten"
+              >
+                <SlidersHorizontal size={13} />
+              </button>
+            </div>
 
             <div className="space-y-4">
-              {CATEGORIES.map((c, i) => {
-                const v = values[c.key];
-                const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
+              {categories.map((c) => {
+                const v = values[c.key] ?? 5;
+                const color = c.color;
+                const isEditingLabel = editingKey === c.key;
                 return (
                   <div key={c.key} className="hud-panel rounded-2xl p-4">
                     <div className="relative z-10">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs uppercase tracking-wide text-cyan-100/80">{c.label}</span>
-                        <span
-                          className="text-sm font-bold w-8 text-right tabular-nums"
-                          style={{ color, textShadow: `0 0 8px ${color}88` }}
-                        >
-                          {v}
-                        </span>
+                      <div className="flex items-center justify-between mb-2 gap-2">
+                        {isEditingLabel ? (
+                          <input
+                            autoFocus
+                            defaultValue={c.label}
+                            className="hud-input flex-1 py-1 text-xs"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") { renameCategory(c.key, e.currentTarget.value); setEditingKey(null); }
+                              if (e.key === "Escape") setEditingKey(null);
+                            }}
+                            onBlur={(e) => { renameCategory(c.key, e.currentTarget.value); setEditingKey(null); }}
+                          />
+                        ) : (
+                          <span className="text-xs uppercase tracking-wide text-cyan-100/80 flex items-center gap-1.5">
+                            {c.label}
+                            {editCategories && (
+                              <button
+                                onClick={() => setEditingKey(c.key)}
+                                className="text-cyan-400/30 hover:text-cyan-300 transition"
+                                title="Umbenennen"
+                              >
+                                <Pencil size={11} />
+                              </button>
+                            )}
+                          </span>
+                        )}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {editCategories && categories.length > 1 && (
+                            <button
+                              onClick={() => { if (confirm(`"${c.label}" löschen?`)) deleteCategory(c.key); }}
+                              className="text-rose-400/35 hover:text-rose-300 transition"
+                              title="Löschen"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                          <span
+                            className="text-sm font-bold w-8 text-right tabular-nums"
+                            style={{ color, textShadow: `0 0 8px ${color}88` }}
+                          >
+                            {v}
+                          </span>
+                        </div>
                       </div>
                       <input
                         type="range"
@@ -234,6 +318,30 @@ export default function DailyRecapPage() {
                   </div>
                 );
               })}
+
+              {editCategories && (
+                <div className="hud-panel rounded-2xl p-4">
+                  <div className="relative z-10 flex items-center gap-2">
+                    <input
+                      value={newCatLabel}
+                      onChange={(e) => setNewCatLabel(e.target.value)}
+                      placeholder="Neue Kategorie…"
+                      className="hud-input flex-1 py-1.5 text-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && newCatLabel.trim()) { addCategory(newCatLabel); setNewCatLabel(""); }
+                      }}
+                    />
+                    <button
+                      onClick={() => { if (newCatLabel.trim()) { addCategory(newCatLabel); setNewCatLabel(""); } }}
+                      disabled={!newCatLabel.trim()}
+                      className="hud-btn hud-btn-outline !px-2.5 !py-2"
+                      title="Kategorie hinzufügen"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="mt-8 flex items-center gap-3">
@@ -251,7 +359,7 @@ export default function DailyRecapPage() {
               <p className="text-cyan-300/30 text-sm text-center py-12">— Noch keine Einträge. —</p>
             )}
             {sortedEntries.map((e) => {
-              const delta = avgDelta(e.values);
+              const delta = avgDelta(e.values, categories);
               return (
                 <div key={e.date}
                   className="hud-panel rounded-xl p-4 cursor-context-menu select-none"
@@ -264,14 +372,17 @@ export default function DailyRecapPage() {
                       </p>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1">
-                      {CATEGORIES.map((c) => (
-                        <div key={c.key} className="flex justify-between text-[11px]">
-                          <span className="text-cyan-300/35">{c.label.split(" / ")[0]}</span>
-                          <span className={`font-medium tabular-nums ${e.values[c.key] > 5 ? "text-emerald-400" : e.values[c.key] < 5 ? "text-rose-400" : "text-cyan-300/40"}`}>
-                            {e.values[c.key]}
-                          </span>
-                        </div>
-                      ))}
+                      {categories.map((c) => {
+                        const val = e.values[c.key] ?? 5;
+                        return (
+                          <div key={c.key} className="flex justify-between text-[11px]">
+                            <span className="text-cyan-300/35">{c.label.split(" / ")[0]}</span>
+                            <span className={`font-medium tabular-nums ${val > 5 ? "text-emerald-400" : val < 5 ? "text-rose-400" : "text-cyan-300/40"}`}>
+                              {val}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -283,7 +394,7 @@ export default function DailyRecapPage() {
           </div>
         )}
 
-        {tab === "charts" && <GraphView entries={data.entries} />}
+        {tab === "charts" && <GraphView entries={data.entries} categories={categories} />}
       </div>
 
       {contextMenu && (
@@ -305,35 +416,44 @@ export default function DailyRecapPage() {
 
 // ── GraphView ──────────────────────────────────────────────────────────────
 
-type CatSelection = "alle" | CategoryKey;
+type CatSelection = "alle" | "overall" | string;
 
-function buildCategorySeries(entries: DayEntry[], key: CategoryKey, mode: "kumuliert" | "werte") {
+function buildCategorySeries(entries: DayEntry[], key: string, mode: "kumuliert" | "werte") {
   const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
   let cum = 0;
   return sorted.map((e) => {
-    const raw = e.values[key];
+    const raw = e.values[key] ?? 5;
     if (mode === "werte") return { date: e.date, val: raw };
     cum += raw - 5;
     return { date: e.date, val: cum };
   });
 }
 
-function GraphView({ entries }: { entries: DayEntry[] }) {
+function buildOverallSeries(entries: DayEntry[], categories: Category[], mode: "kumuliert" | "werte") {
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+  let cum = 0;
+  return sorted.map((e) => {
+    const avg = categories.length === 0 ? 5 : categories.reduce((s, c) => s + (e.values[c.key] ?? 5), 0) / categories.length;
+    if (mode === "werte") return { date: e.date, val: avg };
+    cum += avg - 5;
+    return { date: e.date, val: cum };
+  });
+}
+
+function GraphView({ entries, categories }: { entries: DayEntry[]; categories: Category[] }) {
   const [mode, setMode] = useState<"kumuliert" | "werte">("kumuliert");
   const [catSelection, setCatSelection] = useState<CatSelection>("alle");
 
   if (entries.length === 0) return <p className="text-cyan-300/30 text-sm text-center py-12">— Noch keine Daten für den Graph. —</p>;
 
-  const catKeys: CategoryKey[] = catSelection === "alle" ? CATEGORIES.map((c) => c.key) : [catSelection];
-  const series = catKeys.map((key) => {
-    const i = CATEGORIES.findIndex((c) => c.key === key);
-    return {
-      key,
-      label: CATEGORIES[i].label,
-      color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
-      points: buildCategorySeries(entries, key, mode),
-    };
-  });
+  const series = catSelection === "overall"
+    ? [{ key: "overall", label: "Overall", color: OVERALL_COLOR, points: buildOverallSeries(entries, categories, mode) }]
+    : (catSelection === "alle" ? categories : categories.filter((c) => c.key === catSelection)).map((c) => ({
+        key: c.key,
+        label: c.label,
+        color: c.color,
+        points: buildCategorySeries(entries, c.key, mode),
+      }));
 
   const allDates = [...new Set(entries.map((e) => e.date))].sort();
   const allVals = series.flatMap((s) => s.points.map((p) => p.val));
@@ -382,13 +502,17 @@ function GraphView({ entries }: { entries: DayEntry[] }) {
           className={`hud-btn ${catSelection === "alle" ? "hud-btn-primary" : "hud-btn-outline"}`}>
           Alle
         </button>
-        {CATEGORIES.map((c, i) => {
-          const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
+        <button onClick={() => setCatSelection("overall")}
+          className="hud-btn hud-btn-outline"
+          style={catSelection === "overall" ? { borderColor: OVERALL_COLOR, color: OVERALL_COLOR, boxShadow: `0 0 14px ${OVERALL_COLOR}55`, background: `${OVERALL_COLOR}1a` } : {}}>
+          Overall
+        </button>
+        {categories.map((c) => {
           const active = catSelection === c.key;
           return (
             <button key={c.key} onClick={() => setCatSelection(c.key)}
               className="hud-btn hud-btn-outline"
-              style={active ? { borderColor: color, color, boxShadow: `0 0 14px ${color}55`, background: `${color}1a` } : {}}>
+              style={active ? { borderColor: c.color, color: c.color, boxShadow: `0 0 14px ${c.color}55`, background: `${c.color}1a` } : {}}>
               {c.label.split(" / ")[0]}
             </button>
           );
