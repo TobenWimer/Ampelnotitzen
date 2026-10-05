@@ -6,23 +6,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { listEntries, readEntry, searchEntries, writeEntry } from "@/lib/cbrainStore";
-import { verifyToken } from "@/lib/oauthStore";
+import { verifyTokenScope, type TokenScope } from "@/lib/oauthStore";
 
 export const runtime = "nodejs";
 
-// Zwei gueltige Wege rein: der feste CBRAIN_MCP_TOKEN (fuer eigene Skripte/Tests)
-// oder ein per OAuth-Flow ausgestellter Token (fuer den claude.ai-Connector).
-async function isAuthorized(req: Request): Promise<boolean> {
+// Zwei gueltige Wege rein: der feste CBRAIN_MCP_TOKEN (fuer eigene Skripte/Tests,
+// immer Schreibrecht) oder ein per OAuth-Flow ausgestellter Token mit gespeichertem Scope.
+async function resolveScope(req: Request): Promise<TokenScope | null> {
   const header = req.headers.get("authorization") ?? "";
   const match = header.match(/^Bearer (.+)$/);
-  if (!match) return false;
+  if (!match) return null;
   const token = match[1];
 
   const staticToken = process.env.CBRAIN_MCP_TOKEN;
-  if (staticToken && token === staticToken) return true;
+  if (staticToken && token === staticToken) return "readwrite";
 
   const origin = new URL(req.url).origin;
-  return verifyToken(token, `${origin}/api/mcp`);
+  return verifyTokenScope(token, `${origin}/api/mcp`);
 }
 
 function unauthorizedResponse(req: Request): Response {
@@ -35,7 +35,7 @@ function unauthorizedResponse(req: Request): Response {
   });
 }
 
-function buildServer(): McpServer {
+function buildServer(scope: TokenScope): McpServer {
   const server = new McpServer({ name: "cbrain", version: "0.1.0" });
 
   server.registerTool(
@@ -90,39 +90,42 @@ function buildServer(): McpServer {
     }
   );
 
-  server.registerTool(
-    "write_entry",
-    {
-      title: "cbrain-Eintrag anlegen oder aendern",
-      description:
-        "Legt einen cbrain-Eintrag an oder aendert ihn (merge, bestehende Felder bleiben erhalten wenn " +
-        "nicht angegeben). docId im Format '<folder>__<slug>'. Beim Neuanlegen folder, slug, type, summary " +
-        "und content mitgeben. updatedAt wird automatisch gesetzt.",
-      inputSchema: {
-        docId: z.string(),
-        folder: z.string().optional(),
-        slug: z.string().optional(),
-        type: z.string().optional(),
-        summary: z.string().optional(),
-        status: z.string().optional(),
-        content: z.string().optional(),
+  if (scope === "readwrite") {
+    server.registerTool(
+      "write_entry",
+      {
+        title: "cbrain-Eintrag anlegen oder aendern",
+        description:
+          "Legt einen cbrain-Eintrag an oder aendert ihn (merge, bestehende Felder bleiben erhalten wenn " +
+          "nicht angegeben). docId im Format '<folder>__<slug>'. Beim Neuanlegen folder, slug, type, summary " +
+          "und content mitgeben. updatedAt wird automatisch gesetzt.",
+        inputSchema: {
+          docId: z.string(),
+          folder: z.string().optional(),
+          slug: z.string().optional(),
+          type: z.string().optional(),
+          summary: z.string().optional(),
+          status: z.string().optional(),
+          content: z.string().optional(),
+        },
       },
-    },
-    async ({ docId, folder, slug, type, summary, status, content }) => {
-      await writeEntry({ docId, folder, slug, type, summary, status, content });
-      return { content: [{ type: "text", text: `Gespeichert: ${docId}` }] };
-    }
-  );
+      async ({ docId, folder, slug, type, summary, status, content }) => {
+        await writeEntry({ docId, folder, slug, type, summary, status, content });
+        return { content: [{ type: "text", text: `Gespeichert: ${docId}` }] };
+      }
+    );
+  }
 
   return server;
 }
 
 async function handle(req: Request): Promise<Response> {
-  if (!(await isAuthorized(req))) {
+  const scope = await resolveScope(req);
+  if (!scope) {
     return unauthorizedResponse(req);
   }
 
-  const server = buildServer();
+  const server = buildServer(scope);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

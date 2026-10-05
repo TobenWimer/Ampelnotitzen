@@ -47,11 +47,16 @@ export async function getClient(clientId: string): Promise<RegisteredClient | nu
   return { clientId, redirectUris: data.redirectUris, clientName: data.clientName ?? undefined };
 }
 
+// "readwrite" ist der Default: Tokens ohne gespeicherten Scope (alte Claude-Verbindung)
+// behalten damit volle Schreibrechte.
+export type TokenScope = "read" | "readwrite";
+
 export async function createAuthCode(input: {
   clientId: string;
   redirectUri: string;
   codeChallenge: string;
   resource?: string;
+  scope: TokenScope;
 }): Promise<string> {
   const code = crypto.randomBytes(32).toString("base64url");
   await adminDb
@@ -62,15 +67,20 @@ export async function createAuthCode(input: {
       redirectUri: input.redirectUri,
       codeChallenge: input.codeChallenge,
       resource: input.resource ?? null,
+      scope: input.scope,
       used: false,
       expiresAt: Timestamp.fromMillis(Date.now() + CODE_TTL_MS),
     });
   return code;
 }
 
-export async function consumeAuthCode(
-  code: string
-): Promise<{ clientId: string; redirectUri: string; codeChallenge: string; resource?: string } | null> {
+export async function consumeAuthCode(code: string): Promise<{
+  clientId: string;
+  redirectUri: string;
+  codeChallenge: string;
+  resource?: string;
+  scope: TokenScope;
+} | null> {
   const ref = adminDb.collection("mcpOAuthCodes").doc(code);
   const doc = await ref.get();
   if (!doc.exists) return null;
@@ -82,12 +92,14 @@ export async function consumeAuthCode(
     redirectUri: data.redirectUri,
     codeChallenge: data.codeChallenge,
     resource: data.resource ?? undefined,
+    scope: (data.scope as TokenScope | undefined) ?? "readwrite",
   };
 }
 
 export async function issueToken(
   clientId: string,
-  resource?: string
+  resource: string | undefined,
+  scope: TokenScope
 ): Promise<{ token: string; expiresInSeconds: number }> {
   const token = "osb-oauth-" + crypto.randomBytes(32).toString("base64url");
   await adminDb
@@ -96,20 +108,25 @@ export async function issueToken(
     .set({
       clientId,
       resource: resource ?? null,
+      scope,
       createdAt: FieldValue.serverTimestamp(),
       expiresAt: Timestamp.fromMillis(Date.now() + TOKEN_TTL_MS),
     });
   return { token, expiresInSeconds: Math.floor(TOKEN_TTL_MS / 1000) };
 }
 
-export async function verifyToken(token: string, expectedResource?: string): Promise<boolean> {
+export async function verifyTokenScope(token: string, expectedResource?: string): Promise<TokenScope | null> {
   const doc = await adminDb.collection("mcpOAuthTokens").doc(sha256Hex(token)).get();
-  if (!doc.exists) return false;
+  if (!doc.exists) return null;
   const data = doc.data()!;
-  if ((data.expiresAt as Timestamp).toMillis() < Date.now()) return false;
+  if ((data.expiresAt as Timestamp).toMillis() < Date.now()) return null;
   const storedResource: string | undefined = data.resource ?? undefined;
-  if (storedResource && expectedResource && storedResource !== expectedResource) return false;
-  return true;
+  if (storedResource && expectedResource && storedResource !== expectedResource) return null;
+  return (data.scope as TokenScope | undefined) ?? "readwrite";
+}
+
+export async function verifyToken(token: string, expectedResource?: string): Promise<boolean> {
+  return (await verifyTokenScope(token, expectedResource)) !== null;
 }
 
 export function verifyPkce(codeVerifier: string, codeChallenge: string): boolean {
