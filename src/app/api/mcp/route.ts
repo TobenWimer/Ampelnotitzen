@@ -43,16 +43,20 @@ function buildServer(scope: TokenScope): McpServer {
     {
       title: "cbrain-Einträge auflisten",
       description:
-        "Listet cbrain-Vault-Einträge ohne den vollen Inhalt (nur Metadaten: folder, slug, type, summary, status). " +
-        "Optional nach folder (People/Projects/Decisions/Knowledge/Companies), type oder status filtern.",
+        "Listet cbrain-Vault-Einträge ohne den vollen Inhalt (nur Metadaten: folder, slug, type, summary, " +
+        "status, tags, dueDate). Optional nach folder (People/Projects/Decisions/Knowledge/Companies), " +
+        "type, status oder tag filtern. tag findet Einträge ordnerübergreifend (z.B. alle mit tag " +
+        "'nadine', egal ob People/Knowledge/Reminders). dueDate ist bei Reminders gesetzt (YYYY-MM-DD), " +
+        "direkt in den Metadaten enthalten, kein read_entry pro Eintrag nötig um Fristen zu prüfen.",
       inputSchema: {
         folder: z.string().optional(),
         type: z.string().optional(),
         status: z.string().optional(),
+        tag: z.string().optional(),
       },
     },
-    async ({ folder, type, status }) => {
-      const entries = await listEntries({ folder, type, status });
+    async ({ folder, type, status, tag }) => {
+      const entries = await listEntries({ folder, type, status, tag });
       return { content: [{ type: "text", text: JSON.stringify(entries, null, 2) }] };
     }
   );
@@ -97,8 +101,12 @@ function buildServer(scope: TokenScope): McpServer {
         title: "cbrain-Eintrag anlegen oder aendern",
         description:
           "Legt einen cbrain-Eintrag an oder aendert ihn (merge, bestehende Felder bleiben erhalten wenn " +
-          "nicht angegeben). docId im Format '<folder>__<slug>'. Beim Neuanlegen folder, slug, type, summary " +
-          "und content mitgeben. updatedAt wird automatisch gesetzt.",
+          "nicht angegeben, tags ersetzt das ganze Array wenn mitgegeben). docId im Format '<folder>__<slug>'. " +
+          "Beim Neuanlegen folder, slug, type, summary und content mitgeben. updatedAt wird automatisch gesetzt. " +
+          "tags: kurze Stichworte fuer Themen/Personen/Projekte, die ueber mehrere Ordner hinweg zusammengehoeren " +
+          "(z.B. ['nadine', 'beziehung']), damit list_entries sie ordnerübergreifend findet. dueDate (YYYY-MM-DD): " +
+          "bei Eintraegen mit konkretem Ablaufdatum (v.a. Reminders) als echtes Feld setzen, nicht nur im Fliesstext, " +
+          "damit list_entries Fristen liefert ohne jeden Eintrag einzeln lesen zu muessen.",
         inputSchema: {
           docId: z.string(),
           folder: z.string().optional(),
@@ -106,11 +114,13 @@ function buildServer(scope: TokenScope): McpServer {
           type: z.string().optional(),
           summary: z.string().optional(),
           status: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+          dueDate: z.string().optional(),
           content: z.string().optional(),
         },
       },
-      async ({ docId, folder, slug, type, summary, status, content }) => {
-        await writeEntry({ docId, folder, slug, type, summary, status, content });
+      async ({ docId, folder, slug, type, summary, status, tags, dueDate, content }) => {
+        await writeEntry({ docId, folder, slug, type, summary, status, tags, dueDate, content });
         return { content: [{ type: "text", text: `Gespeichert: ${docId}` }] };
       }
     );

@@ -15,6 +15,8 @@ export type CbrainEntrySummary = {
   type: string;
   summary: string;
   status?: string;
+  tags?: string[];
+  dueDate?: string;
   updatedAt: string;
 };
 
@@ -30,6 +32,8 @@ function toSummary(docId: string, data: FirebaseFirestore.DocumentData): CbrainE
     type: data.type,
     summary: data.summary ?? "",
     status: data.status,
+    tags: data.tags,
+    dueDate: data.dueDate,
     updatedAt: data.updatedAt?.toDate?.().toISOString() ?? "",
   };
 }
@@ -38,11 +42,13 @@ export async function listEntries(filter: {
   folder?: string;
   type?: string;
   status?: string;
+  tag?: string;
 }): Promise<CbrainEntrySummary[]> {
   let query: FirebaseFirestore.Query = adminDb.collection(COLLECTION);
   if (filter.folder) query = query.where("folder", "==", filter.folder);
   if (filter.type) query = query.where("type", "==", filter.type);
   if (filter.status) query = query.where("status", "==", filter.status);
+  if (filter.tag) query = query.where("tags", "array-contains", filter.tag);
 
   const snap = await query.get();
   return snap.docs.map((doc) => toSummary(doc.id, doc.data()));
@@ -76,6 +82,8 @@ export async function writeEntry(input: {
   type?: string;
   summary?: string;
   status?: string;
+  tags?: string[];
+  dueDate?: string;
   content?: string;
 }): Promise<void> {
   const { docId, ...rawFields } = input;
