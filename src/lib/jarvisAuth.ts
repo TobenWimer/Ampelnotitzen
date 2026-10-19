@@ -34,7 +34,7 @@ export async function requireOwner(req: Request): Promise<OwnerResult> {
     verify = (token) => auth.verifyIdToken(token, true);
   } catch (err) {
     console.error("[jarvis] Auth-Modul konnte nicht geladen werden:", err);
-    return deny(500, "jarvis_auth_unavailable");
+    return deny(500, `jarvis_auth_unavailable: ${err instanceof Error ? err.message.slice(0, 300) : String(err)}`); // TEMP-DIAG
   }
 
   let uid: string;
