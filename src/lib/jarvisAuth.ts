@@ -4,7 +4,8 @@
 // die App erlaubt anonyme Anmeldung, jeder Besucher kann sich ein gueltiges Token holen.
 // Fail-closed: ist die Variable nicht gesetzt, ist Jarvis fuer niemanden erreichbar.
 
-import { adminAuth } from "./firebaseAdmin";
+import { getAuth } from "firebase-admin/auth";
+import { adminApp } from "./firebaseAdmin";
 
 export type OwnerResult = { ok: true; uid: string } | { ok: false; response: Response };
 
@@ -27,7 +28,7 @@ export async function requireOwner(req: Request): Promise<OwnerResult> {
 
   let uid: string;
   try {
-    const decoded = await adminAuth.verifyIdToken(match[1], true);
+    const decoded = await getAuth(adminApp).verifyIdToken(match[1], true);
     uid = decoded.uid;
   } catch {
     return deny(401, "unauthorized");
