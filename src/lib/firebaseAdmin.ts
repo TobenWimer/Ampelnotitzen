@@ -4,6 +4,7 @@
 // Service-Account-Datei.
 
 import { getApps, initializeApp, cert, type App } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
 function loadAdminApp(): App {
@@ -23,4 +24,6 @@ function loadAdminApp(): App {
   return initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
 }
 
-export const adminDb = getFirestore(loadAdminApp());
+const adminApp = loadAdminApp();
+export const adminDb = getFirestore(adminApp);
+export const adminAuth = getAuth(adminApp);
