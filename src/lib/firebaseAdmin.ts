@@ -23,5 +23,5 @@ function loadAdminApp(): App {
   return initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
 }
 
-export const adminApp = loadAdminApp();
+const adminApp = loadAdminApp();
 export const adminDb = getFirestore(adminApp);
