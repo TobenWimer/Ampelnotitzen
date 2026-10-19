@@ -4,7 +4,6 @@
 // die App erlaubt anonyme Anmeldung, jeder Besucher kann sich ein gueltiges Token holen.
 // Fail-closed: ist die Variable nicht gesetzt, ist Jarvis fuer niemanden erreichbar.
 
-import { getAuth } from "firebase-admin/auth";
 import { adminApp } from "./firebaseAdmin";
 
 export type OwnerResult = { ok: true; uid: string } | { ok: false; response: Response };
@@ -26,10 +25,21 @@ export async function requireOwner(req: Request): Promise<OwnerResult> {
   const match = (req.headers.get("authorization") ?? "").match(/^Bearer (.+)$/);
   if (!match) return deny(401, "unauthorized");
 
+  // Lazy geladen: ein Fehler im Auth-Modul darf nie andere Routen mitreissen und wird
+  // hier fail-closed behandelt.
+  let verify: (token: string) => Promise<{ uid: string }>;
+  try {
+    const { getAuth } = await import("firebase-admin/auth");
+    const auth = getAuth(adminApp);
+    verify = (token) => auth.verifyIdToken(token, true);
+  } catch (err) {
+    console.error("[jarvis] Auth-Modul konnte nicht geladen werden:", err);
+    return deny(500, "jarvis_auth_unavailable");
+  }
+
   let uid: string;
   try {
-    const decoded = await getAuth(adminApp).verifyIdToken(match[1], true);
-    uid = decoded.uid;
+    uid = (await verify(match[1])).uid;
   } catch {
     return deny(401, "unauthorized");
   }
