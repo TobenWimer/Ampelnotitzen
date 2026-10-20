@@ -92,7 +92,14 @@ export async function POST(req: Request) {
   // Stabiler Teil zuerst und gecacht; die Uhrzeit aendert sich staendig und kommt dahinter.
   const system: Anthropic.TextBlockParam[] = [
     { type: "text", text: foundation, cache_control: { type: "ephemeral" } },
-    { type: "text", text: `Aktuelles Datum und Uhrzeit (Zuerich): ${now}` },
+    {
+      type: "text",
+      text:
+        `Aktuelles Datum und Uhrzeit (Zuerich): ${now}\n\n` +
+        "Stil-Erinnerung (gilt fuer jede Antwort): hoechstens 1 bis 2 Saetze, bei echten Sachfragen bis 4. " +
+        "Spitz und trocken, mit dem relevanten Fakt im Spruch. Fazit statt Zahlen, keine Listen, keine Floskeln, " +
+        "keine Ratschlaege, die niemand verlangt hat.",
+    },
   ];
 
   const convo: Anthropic.MessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
