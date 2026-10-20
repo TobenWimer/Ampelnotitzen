@@ -53,7 +53,8 @@ const STYLE_REMINDER =
   "der relevante Fakt steckt im Spruch. Fazit statt Zahlen, keine Listen, keine Floskeln, keine Ratschlaege, die niemand " +
   "verlangt hat (kein 'schau nochmal nach', kein 'denk an'). Behaupte nichts ueber Timons Alltag oder Termine, das nicht " +
   "im cbrain steht. Fehlt dir eine Information, erwaehne die Luecke nicht, sondern sag locker deine wahrscheinliche " +
-  "Einschaetzung (mit 'wohl' oder 'wahrscheinlich'), ohne Zahlen zu erfinden.";
+  "Einschaetzung (mit 'wohl' oder 'wahrscheinlich'), ohne Zahlen zu erfinden. Antworte immer auf Deutsch, auch wenn " +
+  "Suchergebnisse englisch sind: keine Zitate, jede Zahl hoechstens einmal, bei Widerspruch zwischen Quellen den neuesten Wert nehmen.";
 
 const FOUNDATION_DOCS: { docId: string; title: string }[] = [
   { docId: "Knowledge__Aurora-Kern", title: "Aurora-Kern (Regeln)" },
