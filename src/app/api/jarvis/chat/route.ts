@@ -33,6 +33,13 @@ Timons cbrain sind deine Grundlagen: Kern (Regeln), Persona (Stil, hat bei Laeng
 Du hast lesenden Zugriff auf cbrain (list_entries, read_entry, search_entries) und get_weather. Bei Fragen zu Timons
 Leben, Projekten, Personen oder Entscheidungen erst nachsehen statt raten. Wo etwas als offen markiert ist, erfinde nichts.`;
 
+const STYLE_REMINDER =
+  "Stilregel fuer diese Antwort: ZWEI Saetze sind das Maximum, nur bei echten Sachfragen bis 4. Spitz und trocken, " +
+  "der relevante Fakt steckt im Spruch. Fazit statt Zahlen, keine Listen, keine Floskeln, keine Ratschlaege, die niemand " +
+  "verlangt hat (kein 'schau nochmal nach', kein 'denk an'). Behaupte nichts ueber Timons Alltag oder Termine, das nicht " +
+  "im cbrain steht. Fehlt dir eine Information, erwaehne die Luecke nicht, sondern sag locker deine wahrscheinliche " +
+  "Einschaetzung (mit 'wohl' oder 'wahrscheinlich'), ohne Zahlen zu erfinden.";
+
 const FOUNDATION_DOCS: { docId: string; title: string }[] = [
   { docId: "Knowledge__Aurora-Kern", title: "Aurora-Kern (Regeln)" },
   { docId: "Knowledge__Aurora-Persona", title: "Aurora-Persona (Stil)" },
@@ -92,18 +99,13 @@ export async function POST(req: Request) {
   // Stabiler Teil zuerst und gecacht; die Uhrzeit aendert sich staendig und kommt dahinter.
   const system: Anthropic.TextBlockParam[] = [
     { type: "text", text: foundation, cache_control: { type: "ephemeral" } },
-    {
-      type: "text",
-      text:
-        `Aktuelles Datum und Uhrzeit (Zuerich): ${now}\n\n` +
-        "Stil-Erinnerung (gilt fuer jede Antwort): ZWEI Saetze sind das Maximum, nur bei echten Sachfragen bis 4. " +
-        "Spitz und trocken, mit dem relevanten Fakt im Spruch. Fazit statt Zahlen, keine Listen, keine Floskeln, " +
-        "keine Ratschlaege, die niemand verlangt hat (kein 'schau nochmal nach', kein 'denk an'). " +
-        "Behaupte nichts ueber Timons Alltag, Termine oder Stundenplan, das nicht im cbrain steht: nachschlagen oder weglassen.",
-    },
+    { type: "text", text: `Aktuelles Datum und Uhrzeit (Zuerich): ${now}` },
   ];
 
   const convo: Anthropic.MessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  // Stilregel als Systemnachricht direkt nach Timons Frage: hoechste Prioritaet und ganz nah an der Antwort.
+  // Im Systemprompt oben ging sie unter (Aurora schrieb trotz Regel 3 bis 4 Saetze).
+  convo.push({ role: "system", content: STYLE_REMINDER } as unknown as Anthropic.MessageParam);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 };
   const started = Date.now();
   let reply = "";

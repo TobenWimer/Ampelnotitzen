@@ -50,7 +50,8 @@ export const JARVIS_TOOLS: Anthropic.Tool[] = [
 JARVIS_TOOLS.push({
   name: "get_weather",
   description:
-    "Aktuelles Wetter und Vorhersage fuer die naechsten 4 Tage (Temperatur, Regen, Wind, Hoehe des Ortes). " +
+    "Aktuelles Wetter und Vorhersage fuer die naechsten 8 Tage, also auch das kommende Wochenende " +
+    "(Temperatur, Regen, Wind, Hoehe des Ortes). Ab Tag 5 wird die Vorhersage unsicherer, dann als Tendenz nennen. " +
     "place ist ein Ortsname, z.B. 'Zug' oder 'Sustenpass'. Nennt Timon keinen Ort, den Wohnort aus seinem Profil nehmen.",
   input_schema: {
     type: "object",
@@ -90,7 +91,7 @@ async function getWeather(place: string): Promise<unknown> {
     current: "temperature_2m,apparent_temperature,precipitation,wind_speed_10m,weather_code",
     daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max",
     timezone: "Europe/Zurich",
-    forecast_days: "4",
+    forecast_days: "8",
   });
   const data = await fetchJson(`https://api.open-meteo.com/v1/forecast?${params}`);
   const d = data.daily;
