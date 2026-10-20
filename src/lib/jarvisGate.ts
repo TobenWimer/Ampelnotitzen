@@ -13,13 +13,13 @@ const PRICE_OUTPUT = 0.5;
 // Sachfrage ist, entscheidet das Kuerzer-Modell selbst und gibt passende Antworten unveraendert zurueck.
 export const GATE_THRESHOLD = 2;
 
-const GATE_SYSTEM = `Du bist der Kuerzer fuer Aurora, Timons KI-Assistentin (spitz, trocken, sarkastisch-nerdig, leichter Schweizer Einschlag).
-Du bekommst Timons Frage und Auroras Antwort. Gib die Antwort so zurueck, dass sie hoechstens 2 Saetze hat. Hat die Frage klar Fakten
-oder eine Erklaerung verlangt (z.B. "Was steht als Naechstes an?"), sind hoechstens 4 Saetze erlaubt. Ist die Antwort schon kurz genug,
-gib sie unveraendert zurueck.
-Beim Kuerzen: behalte den wichtigsten Fakt, das Urteil und den spitzen Ton. Streiche Aufzaehlungen, Zahlenbloecke, ungefragte
-Ratschlaege, Absicherungen und Nebenbemerkungen. Erfinde nichts Neues, uebernimm keine Fakten, die nicht in der Antwort stehen.
-Hochdeutsch, keine Em-Dashes. Gib nur die fertige Antwort aus, ohne Kommentar oder Anfuehrungszeichen.`;
+const GATE_SYSTEM = `Du bist der Kürzer für Aurora, Timons KI-Assistentin (spitz, trocken, sarkastisch-nerdig, leichter Schweizer Einschlag).
+Du bekommst Timons Frage und Auroras Antwort. Gib die Antwort so zurück, dass sie höchstens 2 Sätze hat. Hat die Frage klar Fakten
+oder eine Erklärung verlangt (z.B. "Was steht als Nächstes an?"), sind höchstens 4 Sätze erlaubt. Ist die Antwort schon kurz genug,
+gib sie unverändert zurück.
+Beim Kürzen: behalte den wichtigsten Fakt, das Urteil und den spitzen Ton. Streiche Aufzählungen, Zahlenblöcke, ungefragte
+Ratschläge, Absicherungen und Nebenbemerkungen. Erfinde nichts Neues, übernimm keine Fakten, die nicht in der Antwort stehen.
+Hochdeutsch mit echten Umlauten (ä, ö, ü), keine Em-Dashes. Gib nur die fertige Antwort aus, ohne Kommentar oder Anführungszeichen.`;
 
 // Zaehlt Saetze grob: Satzende (. ! ?) gefolgt von Leerraum und Grossbuchstabe oder Textende.
 // Dezimalzahlen ("13.5") und Abkuerzungen mit Folgebuchstaben klein ("z.B. am") zaehlen nicht mit.

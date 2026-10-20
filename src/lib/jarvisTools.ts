@@ -13,9 +13,9 @@ export const JARVIS_TOOLS: Anthropic.Tool[] = [
   {
     name: "list_entries",
     description:
-      "Listet cbrain-Eintraege ohne vollen Inhalt (folder, slug, type, summary, status, tags, dueDate). " +
+      "Listet cbrain-Einträge ohne vollen Inhalt (folder, slug, type, summary, status, tags, dueDate). " +
       "Optional nach folder (People/Projects/Decisions/Knowledge/Companies/Meetings/Daily/Reminders/MOCs), " +
-      "type, status oder tag filtern. tag findet Eintraege ordneruebergreifend.",
+      "type, status oder tag filtern. tag findet Einträge ordnerübergreifend.",
     input_schema: {
       type: "object",
       properties: {
@@ -39,7 +39,7 @@ export const JARVIS_TOOLS: Anthropic.Tool[] = [
   {
     name: "search_entries",
     description:
-      "Einfache Teilstring-Suche (ohne Gross-/Kleinschreibung) in summary und content aller Eintraege. " +
+      "Einfache Teilstring-Suche (ohne Groß-/Kleinschreibung) in summary und content aller Eintraege. " +
       "Liefert nur Metadaten, den Inhalt danach mit read_entry holen. Bei Misserfolg Synonyme probieren.",
     input_schema: {
       type: "object",
@@ -52,8 +52,8 @@ export const JARVIS_TOOLS: Anthropic.Tool[] = [
 JARVIS_TOOLS.push({
   name: "get_weather",
   description:
-    "Aktuelles Wetter und Vorhersage fuer die naechsten 8 Tage, also auch das kommende Wochenende " +
-    "(Temperatur, Regen, Wind, Hoehe des Ortes). Ab Tag 5 wird die Vorhersage unsicherer, dann als Tendenz nennen. " +
+    "Aktuelles Wetter und Vorhersage für die nächsten 8 Tage, also auch das kommende Wochenende " +
+    "(Temperatur, Regen, Wind, Höhe des Ortes). Ab Tag 5 wird die Vorhersage unsicherer, dann als Tendenz nennen. " +
     "place ist ein Ortsname, z.B. 'Zug' oder 'Sustenpass'. Nennt Timon keinen Ort, den Wohnort aus seinem Profil nehmen.",
   input_schema: {
     type: "object",
@@ -65,9 +65,9 @@ JARVIS_TOOLS.push({
 JARVIS_TOOLS.push({
   name: "get_calendar",
   description:
-    "Timons Termine aus dem Apple-Kalender zwischen start und end (beide inklusive, Format YYYY-MM-DD, hoechstens 31 Tage). " +
+    "Timons Termine aus dem Apple-Kalender zwischen start und end (beide inklusive, Format YYYY-MM-DD, höchstens 31 Tage). " +
     "Nur lesen. Liefert Titel, Beginn, Ende, Ort und Kalendername. Wiederkehrende Termine erscheinen nur beim ersten Auftreten. " +
-    "Nutze es, wenn es um Zeit, Plaene oder Verfuegbarkeit geht (z.B. 'Was habe ich am Wochenende vor?').",
+    "Nutze es, wenn es um Zeit, Pläne oder Verfügbarkeit geht (z.B. 'Was habe ich am Wochenende vor?').",
   input_schema: {
     type: "object",
     properties: { start: { type: "string" }, end: { type: "string" } },
@@ -82,10 +82,10 @@ const stampOf = (d: Date) =>
 
 async function getCalendar(start: string, end: string): Promise<unknown> {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-  if (!datePattern.test(start) || !datePattern.test(end)) return { error: "start und end muessen YYYY-MM-DD sein." };
+  if (!datePattern.test(start) || !datePattern.test(end)) return { error: "start und end müssen YYYY-MM-DD sein." };
   const startMs = Date.parse(`${start}T00:00:00Z`);
   const endMs = Date.parse(`${end}T00:00:00Z`);
-  if (!(endMs >= startMs) || endMs - startMs > 31 * 86400000) return { error: "Zeitraum ungueltig oder laenger als 31 Tage." };
+  if (!(endMs >= startMs) || endMs - startMs > 31 * 86400000) return { error: "Zeitraum ungültig oder länger als 31 Tage." };
 
   // Abfrage etwas weiter fassen (Zeitzonenraender), danach nach Zuercher Kalendertag filtern.
   const rangeStart = new Date(startMs - 86400000).toISOString();
@@ -116,10 +116,10 @@ async function getCalendar(start: string, end: string): Promise<unknown> {
 
 // WMO-Wettercodes (Open-Meteo) in kurzen deutschen Text
 const WEATHER_CODES: Record<number, string> = {
-  0: "klar", 1: "meist klar", 2: "teils bewoelkt", 3: "bedeckt", 45: "Nebel", 48: "Reifnebel",
+  0: "klar", 1: "meist klar", 2: "teils bewölkt", 3: "bedeckt", 45: "Nebel", 48: "Reifnebel",
   51: "leichter Niesel", 53: "Niesel", 55: "starker Niesel", 56: "gefrierender Niesel", 57: "starker gefrierender Niesel",
   61: "leichter Regen", 63: "Regen", 65: "starker Regen", 66: "gefrierender Regen", 67: "starker gefrierender Regen",
-  71: "leichter Schneefall", 73: "Schneefall", 75: "starker Schneefall", 77: "Schneekoerner",
+  71: "leichter Schneefall", 73: "Schneefall", 75: "starker Schneefall", 77: "Schneekörner",
   80: "leichte Schauer", 81: "Schauer", 82: "heftige Schauer", 85: "leichte Schneeschauer", 86: "Schneeschauer",
   95: "Gewitter", 96: "Gewitter mit Hagel", 99: "starkes Gewitter mit Hagel",
 };
@@ -151,11 +151,11 @@ async function getWeather(place: string): Promise<unknown> {
   const d = data.daily;
   return {
     ort: `${hit.name}${hit.admin1 ? `, ${hit.admin1}` : ""}`,
-    hoeheM: Math.round(data.elevation ?? hit.elevation ?? 0),
+    höheM: Math.round(data.elevation ?? hit.elevation ?? 0),
     jetzt: {
       wetter: describeCode(data.current.weather_code),
       tempC: data.current.temperature_2m,
-      gefuehltC: data.current.apparent_temperature,
+      gefühltC: data.current.apparent_temperature,
       regenMm: data.current.precipitation,
       windKmh: data.current.wind_speed_10m,
     },
