@@ -331,5 +331,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /* =========================
+       Jarvis-Nutzungslog (2026-10-20)
+
+       Pro Aurora-Aufruf Modell, Tokens und Kosten, geschrieben von /api/jarvis/chat.
+       Nur server-seitig ueber das Admin SDK, fuer jeden Client gesperrt.
+       ========================= */
+    match /jarvisUsage/{entryId} {
+      allow read, write: if false;
+    }
+
   }
 }
