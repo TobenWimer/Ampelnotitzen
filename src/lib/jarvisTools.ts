@@ -1,4 +1,4 @@
-// Lesende cbrain-Werkzeuge fuer Aurora (Jarvis). Bewusst NUR lesen: kein write_entry.
+// Lesende Werkzeuge fuer Aurora (Jarvis): cbrain lesen und Wetter. Bewusst NUR lesen: kein write_entry.
 // Wird von der Chat-Route genutzt und spaeter vom Telefon-Tool-Endpunkt wiederverwendet.
 // Aufrufer muessen vorher requireOwner bestanden haben.
 
@@ -47,6 +47,75 @@ export const JARVIS_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+JARVIS_TOOLS.push({
+  name: "get_weather",
+  description:
+    "Aktuelles Wetter und Vorhersage fuer die naechsten 4 Tage (Temperatur, Regen, Wind, Hoehe des Ortes). " +
+    "place ist ein Ortsname, z.B. 'Zug' oder 'Sustenpass'. Nennt Timon keinen Ort, den Wohnort aus seinem Profil nehmen.",
+  input_schema: {
+    type: "object",
+    properties: { place: { type: "string" } },
+    required: ["place"],
+  },
+});
+
+// WMO-Wettercodes (Open-Meteo) in kurzen deutschen Text
+const WEATHER_CODES: Record<number, string> = {
+  0: "klar", 1: "meist klar", 2: "teils bewoelkt", 3: "bedeckt", 45: "Nebel", 48: "Reifnebel",
+  51: "leichter Niesel", 53: "Niesel", 55: "starker Niesel", 56: "gefrierender Niesel", 57: "starker gefrierender Niesel",
+  61: "leichter Regen", 63: "Regen", 65: "starker Regen", 66: "gefrierender Regen", 67: "starker gefrierender Regen",
+  71: "leichter Schneefall", 73: "Schneefall", 75: "starker Schneefall", 77: "Schneekoerner",
+  80: "leichte Schauer", 81: "Schauer", 82: "heftige Schauer", 85: "leichte Schneeschauer", 86: "Schneeschauer",
+  95: "Gewitter", 96: "Gewitter mit Hagel", 99: "starkes Gewitter mit Hagel",
+};
+const describeCode = (code: number) => WEATHER_CODES[code] ?? `Code ${code}`;
+
+// Antworten von Open-Meteo sind dynamisch geformt, deshalb bewusst lose typisiert.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchJson(url: string): Promise<any> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000), cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function getWeather(place: string): Promise<unknown> {
+  const geo = await fetchJson(
+    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1&language=de&format=json`
+  );
+  const hit = geo.results?.[0];
+  if (!hit) return { error: `Ort "${place}" nicht gefunden.` };
+  const params = new URLSearchParams({
+    latitude: String(hit.latitude),
+    longitude: String(hit.longitude),
+    current: "temperature_2m,apparent_temperature,precipitation,wind_speed_10m,weather_code",
+    daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max",
+    timezone: "Europe/Zurich",
+    forecast_days: "4",
+  });
+  const data = await fetchJson(`https://api.open-meteo.com/v1/forecast?${params}`);
+  const d = data.daily;
+  return {
+    ort: `${hit.name}${hit.admin1 ? `, ${hit.admin1}` : ""}`,
+    hoeheM: Math.round(data.elevation ?? hit.elevation ?? 0),
+    jetzt: {
+      wetter: describeCode(data.current.weather_code),
+      tempC: data.current.temperature_2m,
+      gefuehltC: data.current.apparent_temperature,
+      regenMm: data.current.precipitation,
+      windKmh: data.current.wind_speed_10m,
+    },
+    tage: d.time.map((date: string, i: number) => ({
+      datum: date,
+      wetter: describeCode(d.weather_code[i]),
+      minC: d.temperature_2m_min[i],
+      maxC: d.temperature_2m_max[i],
+      regenMm: d.precipitation_sum[i],
+      regenWahrscheinlichkeitProzent: d.precipitation_probability_max[i],
+      windMaxKmh: d.wind_speed_10m_max[i],
+    })),
+  };
+}
+
 export type ToolOutcome = { text: string; isError: boolean };
 
 function asString(value: unknown): string | undefined {
@@ -73,6 +142,10 @@ export async function runJarvisTool(name: string, input: unknown): Promise<ToolO
       const query = asString(args.query);
       if (!query) return { text: "query fehlt.", isError: true };
       result = await searchEntries(query);
+    } else if (name === "get_weather") {
+      const place = asString(args.place);
+      if (!place) return { text: "place fehlt.", isError: true };
+      result = await getWeather(place);
     } else {
       return { text: `Unbekanntes Werkzeug "${name}".`, isError: true };
     }
@@ -83,6 +156,6 @@ export async function runJarvisTool(name: string, input: unknown): Promise<ToolO
     };
   } catch (err) {
     console.error(`[jarvis] Werkzeug ${name} fehlgeschlagen:`, err);
-    return { text: "Werkzeugfehler beim Lesen aus cbrain.", isError: true };
+    return { text: `Werkzeugfehler bei ${name}.`, isError: true };
   }
 }
