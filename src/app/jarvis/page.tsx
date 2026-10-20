@@ -8,7 +8,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth, ensureAnonAuth } from "@/lib/firebase";
 
 type Msg = { role: "user" | "assistant"; content: string };
-type Usage = { model: string; input: number; output: number; cacheRead: number; cacheWrite: number; calls: number; costUsd: number; ms: number };
+type Usage = { model: string; input: number; output: number; cacheRead: number; cacheWrite: number; calls: number; costUsd: number; ms: number; gate?: string };
 
 export default function JarvisPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -79,6 +79,7 @@ export default function JarvisPage() {
         <p style={{ fontSize: 12, opacity: 0.6 }}>
           {lastUsage.model}, {lastUsage.calls} Aufruf(e), {lastUsage.input} in / {lastUsage.output} out, Cache gelesen {lastUsage.cacheRead},
           geschrieben {lastUsage.cacheWrite}, ca. {(lastUsage.costUsd * 100).toFixed(2)} Cent, {(lastUsage.ms / 1000).toFixed(1)} s
+          {lastUsage.gate ? `, Kuerzer: ${lastUsage.gate}` : ""}
         </p>
       )}
       <label style={{ display: "block", margin: "8px 0" }}>

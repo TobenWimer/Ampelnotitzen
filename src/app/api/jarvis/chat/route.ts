@@ -9,6 +9,7 @@ import { requireOwner } from "@/lib/jarvisAuth";
 import { readEntry } from "@/lib/cbrainStore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { JARVIS_TOOLS, runJarvisTool } from "@/lib/jarvisTools";
+import { GATE_THRESHOLD, shortenIfNeeded, type GateResult } from "@/lib/jarvisGate";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -109,6 +110,7 @@ export async function POST(req: Request) {
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 };
   const started = Date.now();
   let reply = "";
+  let gateEligible = false;
 
   try {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
@@ -141,6 +143,7 @@ export async function POST(req: Request) {
       if (response.stop_reason !== "tool_use") {
         reply = text || "(keine Antwort)";
         if (response.stop_reason === "max_tokens") reply += "\n[abgeschnitten]";
+        gateEligible = response.stop_reason === "end_turn" && !!text;
         break;
       }
       if (round === MAX_TOOL_ROUNDS) {
@@ -168,10 +171,25 @@ export async function POST(req: Request) {
     return Response.json({ error: "chat_failed" }, { status: 500 });
   }
 
+  // Laengen-Gate: erzwingt die Persona-Regel per Code (siehe jarvisGate.ts).
+  let gate: GateResult | null = null;
+  if (gateEligible) {
+    gate = await shortenIfNeeded(client, messages[messages.length - 1].content, reply);
+    reply = gate.text;
+  }
+
   const costUsd =
     (usage.input * model.input + usage.output * model.output + usage.cacheRead * model.cacheRead + usage.cacheWrite * model.input * 1.25) /
-    1_000_000;
-  const record = { model: model.id, mode, ...usage, costUsd, ms: Date.now() - started };
+      1_000_000 +
+    (gate?.costUsd ?? 0);
+  const record = {
+    model: model.id,
+    mode,
+    ...usage,
+    costUsd,
+    ms: Date.now() - started,
+    ...(gate && gate.before > GATE_THRESHOLD ? { gate: gate.applied ? `${gate.before}->${gate.after}` : "geprueft, unveraendert" } : {}),
+  };
   console.log("[jarvis] usage", JSON.stringify(record));
   try {
     await adminDb.collection("jarvisUsage").add({ ...record, at: new Date() });
