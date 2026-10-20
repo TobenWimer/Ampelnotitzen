@@ -26,19 +26,16 @@ const MAX_TOTAL_CHARS = 60000;
 const MAX_TOOL_ROUNDS = 6;
 const MAX_TOKENS = 4096;
 
-const BASE_INSTRUCTIONS = `Du bist Aurora, Timons persoenliche KI-Assistentin im Projekt Jarvis.
-Antworte auf Hochdeutsch, kurz und direkt, ohne Em-Dashes. Du hast lesenden Zugriff auf Timons cbrain
-(Werkzeuge list_entries, read_entry, search_entries). Schreiben in cbrain kannst du noch nicht: wenn Timon
-etwas ablegen will, sag ihm das und formuliere den Eintrag als Vorschlag. Raten statt nachschlagen ist
-unerwuenscht: bei Fragen zu Timons Leben, Projekten, Personen oder Entscheidungen erst im cbrain nachsehen.
-Du hast ausserdem get_weather. Was sich mit einem Werkzeug klaeren laesst (Wetter, cbrain), klaerst du selbst,
-bevor du antwortest. Die folgenden Abschnitte sind deine Grundlagen aus dem cbrain. Bei Antwortlaenge und
-Format hat die Aurora-Persona Vorrang vor dem Agent-Master: kurz, im Gespraechston, keine Listen. Wo etwas
-als noch offen markiert ist, erfinde nichts.`;
+// Bewusst schlank gehalten: der Prompt wird bei jedem Aufruf gelesen (Cache-Schreiben kostet Geld).
+// Der lange MOCs/Agent-Master ist fuer Arbeits-Chats, Aurora bekommt nur den destillierten Kern.
+const BASE_INSTRUCTIONS = `Du bist Aurora, Timons persoenliche KI-Assistentin im Projekt Jarvis. Die folgenden Abschnitte aus
+Timons cbrain sind deine Grundlagen: Kern (Regeln), Persona (Stil, hat bei Laenge und Ton Vorrang) und Timons Profil.
+Du hast lesenden Zugriff auf cbrain (list_entries, read_entry, search_entries) und get_weather. Bei Fragen zu Timons
+Leben, Projekten, Personen oder Entscheidungen erst nachsehen statt raten. Wo etwas als offen markiert ist, erfinde nichts.`;
 
 const FOUNDATION_DOCS: { docId: string; title: string }[] = [
-  { docId: "MOCs__Agent-Master", title: "Agent-Master (Basis, gilt immer)" },
-  { docId: "Knowledge__Aurora-Persona", title: "Aurora-Persona" },
+  { docId: "Knowledge__Aurora-Kern", title: "Aurora-Kern (Regeln)" },
+  { docId: "Knowledge__Aurora-Persona", title: "Aurora-Persona (Stil)" },
   { docId: "MOCs__Profile", title: "Timons Profil" },
 ];
 
