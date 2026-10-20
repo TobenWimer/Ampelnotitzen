@@ -80,6 +80,15 @@ const dayOf = (d: Date) => d.toLocaleDateString("sv-SE", { timeZone: ZURICH }); 
 const stampOf = (d: Date) =>
   d.toLocaleString("de-CH", { timeZone: ZURICH, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
+// Ganztägige Termine kommen als Mitternacht (UTC) bis Mitternacht an und würden sonst als "02:00" erscheinen.
+const isAllDay = (start: string, end: string) => {
+  const s = Date.parse(start);
+  const e = Date.parse(end);
+  return s % 86400000 === 0 && e % 86400000 === 0 && e > s;
+};
+const dayLabel = (ms: number) =>
+  new Date(ms).toLocaleDateString("de-CH", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "2-digit" });
+
 async function getCalendar(start: string, end: string): Promise<unknown> {
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   if (!datePattern.test(start) || !datePattern.test(end)) return { error: "start und end müssen YYYY-MM-DD sein." };
@@ -104,13 +113,16 @@ async function getCalendar(start: string, end: string): Promise<unknown> {
       return day >= start && day <= end;
     })
     .sort((a, b) => a.e.start.localeCompare(b.e.start))
-    .map(({ cal, e }) => ({
-      titel: e.summary,
-      von: stampOf(new Date(e.start)),
-      bis: stampOf(new Date(e.end)),
-      ort: e.location,
-      kalender: cal,
-    }));
+    .map(({ cal, e }) => {
+      const allDay = isAllDay(e.start, e.end);
+      return {
+        titel: e.summary,
+        von: allDay ? `${dayLabel(Date.parse(e.start))} ganztägig` : stampOf(new Date(e.start)),
+        bis: allDay ? dayLabel(Date.parse(e.end) - 86400000) : stampOf(new Date(e.end)),
+        ort: e.location,
+        kalender: cal,
+      };
+    });
   return { zeitraum: `${start} bis ${end}`, anzahl: items.length, termine: items };
 }
 

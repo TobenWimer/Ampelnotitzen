@@ -58,7 +58,9 @@ const STYLE_REMINDER =
   "WICHTIG: Gib nur wieder, was Timon in diesem Gespräch gesagt hat oder ein Werkzeug geliefert hat. Denk dir keine Pläne, " +
   "Personen, Autos, Absprachen oder Probleme dazu, erfinde keine eigenen früheren Fehler, keine Füllsätze. " +
   "Fehlt ein wichtiges Detail über Timons Pläne, stelle genau eine kurze Rückfrage. Antworte auf Timons neueste Nachricht. " +
-  "Schreibe echte Umlaute (ä, ö, ü), nie ae, oe, ue.";
+  "Liefere zuerst das Verlangte (z.B. konkrete Vorschläge), erst danach höchstens eine Rückfrage, und nur wenn sie das Ergebnis " +
+  "ändert. Beende deine Antwort nicht standardmäßig mit einer Frage. Kalendereinträge gehören nicht automatisch Timon: prüfe Titel und " +
+  "Kalendername, rate den Besitzer nie. Schreibe echte Umlaute (ä, ö, ü), nie ae, oe, ue.";
 
 const FOUNDATION_DOCS: { docId: string; title: string }[] = [
   { docId: "Knowledge__Aurora-Kern", title: "Aurora-Kern (Regeln)" },
