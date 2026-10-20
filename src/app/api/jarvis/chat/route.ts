@@ -96,9 +96,10 @@ export async function POST(req: Request) {
       type: "text",
       text:
         `Aktuelles Datum und Uhrzeit (Zuerich): ${now}\n\n` +
-        "Stil-Erinnerung (gilt fuer jede Antwort): hoechstens 1 bis 2 Saetze, bei echten Sachfragen bis 4. " +
+        "Stil-Erinnerung (gilt fuer jede Antwort): ZWEI Saetze sind das Maximum, nur bei echten Sachfragen bis 4. " +
         "Spitz und trocken, mit dem relevanten Fakt im Spruch. Fazit statt Zahlen, keine Listen, keine Floskeln, " +
-        "keine Ratschlaege, die niemand verlangt hat.",
+        "keine Ratschlaege, die niemand verlangt hat (kein 'schau nochmal nach', kein 'denk an'). " +
+        "Behaupte nichts ueber Timons Alltag, Termine oder Stundenplan, das nicht im cbrain steht: nachschlagen oder weglassen.",
     },
   ];
 
