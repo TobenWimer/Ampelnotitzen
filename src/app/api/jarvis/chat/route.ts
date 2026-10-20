@@ -14,13 +14,25 @@ import { GATE_THRESHOLD, shortenIfNeeded, type GateResult } from "@/lib/jarvisGa
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Mode = "normal" | "deep";
+type Mode = "fast" | "normal" | "deep";
 
 // $ pro 1 Mio. Tokens (Anthropic-Preisliste, Stand 2026-10-06). Cache-Schreiben 5 Min = 1.25x Input.
+// Haiku-Cache-Lesepreis ist angenommen (0.1x Input), nicht aus der Preisliste belegt.
 const MODELS: Record<Mode, { id: string; input: number; output: number; cacheRead: number; effort: "medium" | "high" }> = {
+  fast: { id: "claude-haiku-5-5", input: 0.1, output: 0.5, cacheRead: 0.01, effort: "medium" },
   normal: { id: "claude-sonnet-5-5", input: 2, output: 10, cacheRead: 0.2, effort: "medium" },
   deep: { id: "claude-opus-5-5", input: 4, output: 20, cacheRead: 0.2, effort: "high" },
 };
+
+// Websuche als Anthropic-Server-Werkzeug (laeuft bei Anthropic, derselbe Key). Preis je Suche ist
+// angenommen (ca. 1 Cent), nicht aus der Preisliste belegt. Muss in der Anthropic-Konsole freigeschaltet sein.
+const WEB_SEARCH: Anthropic.WebSearchTool20250305 = {
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: 3,
+  user_location: { type: "approximate", country: "CH", timezone: "Europe/Zurich" },
+};
+const WEB_SEARCH_COST_USD = 0.01;
 
 const MAX_MESSAGES = 40;
 const MAX_TOTAL_CHARS = 60000;
@@ -31,8 +43,10 @@ const MAX_TOKENS = 4096;
 // Der lange MOCs/Agent-Master ist fuer Arbeits-Chats, Aurora bekommt nur den destillierten Kern.
 const BASE_INSTRUCTIONS = `Du bist Aurora, Timons persoenliche KI-Assistentin im Projekt Jarvis. Die folgenden Abschnitte aus
 Timons cbrain sind deine Grundlagen: Kern (Regeln), Persona (Stil, hat bei Laenge und Ton Vorrang) und Timons Profil.
-Du hast lesenden Zugriff auf cbrain (list_entries, read_entry, search_entries) und get_weather. Bei Fragen zu Timons
-Leben, Projekten, Personen oder Entscheidungen erst nachsehen statt raten. Wo etwas als offen markiert ist, erfinde nichts.`;
+Du hast lesenden Zugriff auf cbrain (list_entries, read_entry, search_entries), get_weather, get_calendar (Timons Termine,
+nur lesen) und web_search (Websuche, nur wenn die Antwort davon abhaengt, nie mit persoenlichen Daten in der Suchanfrage).
+Bei Fragen zu Timons Leben, Projekten, Personen, Entscheidungen oder Terminen erst nachsehen statt raten. Wo etwas als offen
+markiert ist, erfinde nichts.`;
 
 const STYLE_REMINDER =
   "Stilregel fuer diese Antwort: ZWEI Saetze sind das Maximum, nur bei echten Sachfragen bis 4. Spitz und trocken, " +
@@ -77,7 +91,7 @@ function parseBody(body: unknown): { messages: ChatMessage[]; mode: Mode } | str
   if (total > MAX_TOTAL_CHARS || clean[0].role !== "user" || clean[clean.length - 1].role !== "user") {
     return "invalid_messages";
   }
-  return { messages: clean, mode: mode === "deep" ? "deep" : "normal" };
+  return { messages: clean, mode: mode === "deep" ? "deep" : mode === "normal" ? "normal" : "fast" };
 }
 
 export async function POST(req: Request) {
@@ -107,23 +121,39 @@ export async function POST(req: Request) {
   // Stilregel als Systemnachricht direkt nach Timons Frage: hoechste Prioritaet und ganz nah an der Antwort.
   // Im Systemprompt oben ging sie unter (Aurora schrieb trotz Regel 3 bis 4 Saetze).
   convo.push({ role: "system", content: STYLE_REMINDER } as unknown as Anthropic.MessageParam);
-  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0 };
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, searches: 0 };
+  let webSearchOn = true;
+  let warn: string | undefined;
   const started = Date.now();
   let reply = "";
   let gateEligible = false;
 
   try {
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      const response = await client.messages.create({
-        model: model.id,
-        max_tokens: MAX_TOKENS,
-        system,
-        tools: JARVIS_TOOLS,
-        messages: convo,
-        output_config: { effort: model.effort },
-      });
+      let response: Anthropic.Message;
+      try {
+        response = await client.messages.create({
+          model: model.id,
+          max_tokens: MAX_TOKENS,
+          system,
+          tools: webSearchOn ? [...JARVIS_TOOLS, WEB_SEARCH] : JARVIS_TOOLS,
+          messages: convo,
+          output_config: { effort: model.effort },
+        });
+      } catch (err) {
+        // Websuche nicht freigeschaltet: ohne sie weitermachen statt die Antwort zu verlieren.
+        if (webSearchOn && err instanceof Anthropic.APIError && err.status === 400 && /web.?search/i.test(err.message)) {
+          console.warn("[jarvis] Websuche nicht verfuegbar, mache ohne weiter:", err.message);
+          webSearchOn = false;
+          warn = "Websuche nicht freigeschaltet (Anthropic-Konsole)";
+          round--;
+          continue;
+        }
+        throw err;
+      }
 
       usage.calls++;
+      usage.searches += response.usage.server_tool_use?.web_search_requests ?? 0;
       usage.input += response.usage.input_tokens;
       usage.output += response.usage.output_tokens;
       usage.cacheRead += response.usage.cache_read_input_tokens ?? 0;
@@ -134,11 +164,23 @@ export async function POST(req: Request) {
         break;
       }
 
+      // Nur der Text nach dem letzten Nicht-Text-Block (nach Suche/Werkzeugen), nicht das "ich schaue kurz nach" davor.
+      let lastNonText = -1;
+      response.content.forEach((b, i) => {
+        if (b.type !== "text") lastNonText = i;
+      });
       const text = response.content
+        .slice(lastNonText + 1)
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)
-        .join("\n")
+        .join("")
         .trim();
+
+      // Server-Werkzeug (Websuche) hat die Runde unterbrochen: Antwort unveraendert zurueckgeben und fortsetzen.
+      if (response.stop_reason === "pause_turn") {
+        convo.push({ role: "assistant", content: response.content });
+        continue;
+      }
 
       if (response.stop_reason !== "tool_use") {
         reply = text || "(keine Antwort)";
@@ -181,13 +223,15 @@ export async function POST(req: Request) {
   const costUsd =
     (usage.input * model.input + usage.output * model.output + usage.cacheRead * model.cacheRead + usage.cacheWrite * model.input * 1.25) /
       1_000_000 +
-    (gate?.costUsd ?? 0);
+    (gate?.costUsd ?? 0) +
+    usage.searches * WEB_SEARCH_COST_USD;
   const record = {
     model: model.id,
     mode,
     ...usage,
     costUsd,
     ms: Date.now() - started,
+    ...(warn ? { warn } : {}),
     ...(gate && gate.before > GATE_THRESHOLD ? { gate: gate.applied ? `${gate.before}->${gate.after}` : "geprueft, unveraendert" } : {}),
   };
   console.log("[jarvis] usage", JSON.stringify(record));

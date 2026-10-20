@@ -13,7 +13,9 @@ import {
   Activity,
   ClipboardList,
   FolderOpen,
+  Bot,
 } from "lucide-react";
+import { onAuthStateChanged } from "firebase/auth";
 import { doc, onSnapshot } from "firebase/firestore";
 import { isClipboardExpired, ClipboardData } from "@/lib/clipboard";
 import HudGlobalStyles from "@/components/hud/HudGlobalStyles";
@@ -71,6 +73,37 @@ const modules: Module[] = [
     accent: "#38bdf8",
   },
 ];
+
+// Nur fuer den Besitzer sichtbar. Das ist reine Kosmetik: die echte Sperre sitzt in den Jarvis-API-Routen
+// (requireOwner). Wir fragen deshalb den Ping-Endpunkt, statt die Besitzer-uid in den Browser zu legen.
+const jarvisModule: Module = {
+  key: "jarvis",
+  title: "Aurora",
+  desc: "Deine KI-Assistentin. Fragen, Kalender, Wetter, Recherche.",
+  href: "/jarvis",
+  icon: Bot,
+  accent: "#f87171",
+};
+
+function useIsJarvisOwner(): boolean {
+  const [isOwner, setIsOwner] = useState(false);
+  useEffect(() => {
+    return onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setIsOwner(false);
+        return;
+      }
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch("/api/jarvis/ping", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+        setIsOwner(res.ok);
+      } catch {
+        setIsOwner(false);
+      }
+    });
+  }, []);
+  return isOwner;
+}
 
 function Card({ m }: { m: Module }) {
   const Icon = m.icon;
@@ -192,6 +225,7 @@ function Header() {
 }
 
 export default function Home() {
+  const isJarvisOwner = useIsJarvisOwner();
   return (
     <Protected>
       <main className="min-h-screen hud-bg text-cyan-50 flex flex-col relative overflow-hidden font-mono">
@@ -202,6 +236,7 @@ export default function Home() {
             {modules.map((m) => (
               <Card key={m.key} m={m} />
             ))}
+            {isJarvisOwner && <Card m={jarvisModule} />}
           </div>
         </div>
         <HudFooter />

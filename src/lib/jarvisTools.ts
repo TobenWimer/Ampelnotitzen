@@ -1,9 +1,11 @@
-// Lesende Werkzeuge fuer Aurora (Jarvis): cbrain lesen und Wetter. Bewusst NUR lesen: kein write_entry.
+// Lesende Werkzeuge fuer Aurora (Jarvis): cbrain, Wetter, Kalender. Bewusst NUR lesen: kein write_entry,
+// keine Kalender-Aenderungen. (Die Websuche ist ein Anthropic-Server-Werkzeug und steht in der Chat-Route.)
 // Wird von der Chat-Route genutzt und spaeter vom Telefon-Tool-Endpunkt wiederverwendet.
 // Aufrufer muessen vorher requireOwner bestanden haben.
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { listEntries, readEntry, searchEntries } from "./cbrainStore";
+import { listCalendars, listEvents } from "./appleCalendarStore";
 
 const MAX_RESULT_CHARS = 40000;
 
@@ -59,6 +61,58 @@ JARVIS_TOOLS.push({
     required: ["place"],
   },
 });
+
+JARVIS_TOOLS.push({
+  name: "get_calendar",
+  description:
+    "Timons Termine aus dem Apple-Kalender zwischen start und end (beide inklusive, Format YYYY-MM-DD, hoechstens 31 Tage). " +
+    "Nur lesen. Liefert Titel, Beginn, Ende, Ort und Kalendername. Wiederkehrende Termine erscheinen nur beim ersten Auftreten. " +
+    "Nutze es, wenn es um Zeit, Plaene oder Verfuegbarkeit geht (z.B. 'Was habe ich am Wochenende vor?').",
+  input_schema: {
+    type: "object",
+    properties: { start: { type: "string" }, end: { type: "string" } },
+    required: ["start", "end"],
+  },
+});
+
+const ZURICH = "Europe/Zurich";
+const dayOf = (d: Date) => d.toLocaleDateString("sv-SE", { timeZone: ZURICH }); // YYYY-MM-DD
+const stampOf = (d: Date) =>
+  d.toLocaleString("de-CH", { timeZone: ZURICH, weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+async function getCalendar(start: string, end: string): Promise<unknown> {
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (!datePattern.test(start) || !datePattern.test(end)) return { error: "start und end muessen YYYY-MM-DD sein." };
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (!(endMs >= startMs) || endMs - startMs > 31 * 86400000) return { error: "Zeitraum ungueltig oder laenger als 31 Tage." };
+
+  // Abfrage etwas weiter fassen (Zeitzonenraender), danach nach Zuercher Kalendertag filtern.
+  const rangeStart = new Date(startMs - 86400000).toISOString();
+  const rangeEnd = new Date(endMs + 2 * 86400000).toISOString();
+  const calendars = (await listCalendars()).filter((c) => c.components.includes("VEVENT"));
+  const perCalendar = await Promise.all(
+    calendars.map(async (cal) => {
+      const events = await listEvents({ calendarUrl: cal.url, start: rangeStart, end: rangeEnd });
+      return events.map((e) => ({ cal: cal.displayName, e }));
+    })
+  );
+  const items = perCalendar
+    .flat()
+    .filter(({ e }) => {
+      const day = dayOf(new Date(e.start));
+      return day >= start && day <= end;
+    })
+    .sort((a, b) => a.e.start.localeCompare(b.e.start))
+    .map(({ cal, e }) => ({
+      titel: e.summary,
+      von: stampOf(new Date(e.start)),
+      bis: stampOf(new Date(e.end)),
+      ort: e.location,
+      kalender: cal,
+    }));
+  return { zeitraum: `${start} bis ${end}`, anzahl: items.length, termine: items };
+}
 
 // WMO-Wettercodes (Open-Meteo) in kurzen deutschen Text
 const WEATHER_CODES: Record<number, string> = {
@@ -147,6 +201,11 @@ export async function runJarvisTool(name: string, input: unknown): Promise<ToolO
       const place = asString(args.place);
       if (!place) return { text: "place fehlt.", isError: true };
       result = await getWeather(place);
+    } else if (name === "get_calendar") {
+      const start = asString(args.start);
+      const end = asString(args.end);
+      if (!start || !end) return { text: "start und end fehlen.", isError: true };
+      result = await getCalendar(start, end);
     } else {
       return { text: `Unbekanntes Werkzeug "${name}".`, isError: true };
     }
